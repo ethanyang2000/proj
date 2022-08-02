@@ -48,8 +48,9 @@ class myBot(AddOn):
         )
         self.cam = ThirdPersonCamera(avatar_id=str(self.id)+"_cam",
                            position={"x": -5.5, "y": 5, "z": -2},
-                           look_at=self.id,)
-                           
+                           follow_object=self.id)
+
+        
         commands.extend(self.cam.get_initialization_commands())
         return commands
     
@@ -84,6 +85,11 @@ class myBot(AddOn):
             "angle": local_angle,
             "id": self.id,
             "axis": "yaw",
+            },
+            {"$type": "rotate_avatar_by", 
+            "angle": local_angle,
+            "avatar_id": str(self.id)+'_cam',
+            "axis": "yaw",
             }]
         
         self.commands.extend(commands)
@@ -104,6 +110,29 @@ class myBot(AddOn):
             "angle": local_angle,
             "id": self.id,
             "axis": "yaw",
+            },
+            {"$type": "rotate_avatar_by", 
+            "angle": local_angle,
+            "avatar_id": str(self.id)+'_cam',
+            "axis": "yaw",
+            }])
+    
+    def _solve_look_updown(self):
+        if abs(self.action_status.time_left) <= ROTATE_UNIT_:
+            self.action_status.end()
+        else:
+            if self.action_status.time_left < 0:
+                self.action_status.time_left += ROTATE_UNIT_
+            else:
+                self.action_status.time_left -= ROTATE_UNIT_
+            local_angle = min(ROTATE_UNIT_, abs(self.action_status.time_left))
+            if self.action_status.time_left < 0:
+                local_angle = -local_angle
+            self.commands.extend([{"$type": "rotate_avatar_by", 
+            "angle": local_angle,
+            "avatar_id": str(self.id)+'_cam',
+            "axis": "pitch",
+            'is_world': False
             }])
 
     def _solve_move_by(self):
@@ -136,7 +165,10 @@ class myBot(AddOn):
             self._solve_move_by()
         elif self.action_status.record.name == 'rotate':
             self._solve_rotate_by()
+        elif self.action_status.record.name == 'look_updown':
+            self._solve_look_updown()
 
+    
     def move_by(self, dis):
         commands = []
         if 'walking' not in self.actions_lib.keys():
@@ -157,20 +189,32 @@ class myBot(AddOn):
         ])
         self.commands.extend(commands)
 
-
-
+    def look_updown(self, angle):
+        angle = -angle
+        self.action_status.start(self.transform, self.rig, angle, myRecord('look_updown', angle))
+        local_angle = min(ROTATE_UNIT_, abs(angle))
+        if angle < 0:
+            local_angle = -local_angle
+        commands = [{"$type": "rotate_avatar_by", 
+            "angle": local_angle,
+            "avatar_id": str(self.id)+'_cam',
+            "axis": "pitch",
+            'is_world': False
+            }]
+        
+        self.commands.extend(commands)
 
 # Add a camera and enable image capture.
 c = Controller(check_version=False)
 h = myBot(id=c.get_unique_id())
-camera = ThirdPersonCamera(avatar_id="observer",
+"""camera = ThirdPersonCamera(avatar_id="observer",
                            position={"x": -5.5, "y": 5, "z": -2},
-                           look_at=h.id)
+                           look_at=h.id)"""
 path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath("test")
 print(f"Images will be saved to: {path}")
-capture = ImageCapture(avatar_ids=["observer"], path=path)
+capture = ImageCapture(avatar_ids=[str(h.id)+"_cam"], path=path)
 # Start the controller.
-c.add_ons.extend([h, camera, capture])
+c.add_ons.extend([h, capture])
 # Create a scene and add a humanoid.
 c.communicate([TDWUtils.create_empty_room(32, 32)
                ])# Add an animation.
@@ -180,7 +224,7 @@ h.move_by(2)
 while h.action_status.ongoing:
     c.communicate([])
 
-h.rotate_by(-100)
+h.rotate_by(-80)
 while h.action_status.ongoing:
     c.communicate([])
 for i in range(10):
