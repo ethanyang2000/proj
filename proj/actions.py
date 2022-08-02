@@ -23,3 +23,6 @@ class ActionStatus():
         self.target = None
         self.record = None
         self.time_left = 0
+    
+    def refresh(self):
+        self.time_left = self.record.get_num_frames()
