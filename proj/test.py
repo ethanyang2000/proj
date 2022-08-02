@@ -7,10 +7,12 @@ from tdw.add_ons.add_on import AddOn
 from tdw.output_data import OutputData, Transforms, Rigidbodies
 from actions import ActionStatus
 from tdw.librarian import HumanoidAnimationLibrarian
+from utils import myRecord
 from utils import get_pos_and_rot, l2_dis
 from icecream import ic
 
 PREFIX_ = 'file:///C:/Users/YangYuxiang/Desktop/proj/resource/'
+ROTATE_UNIT_ = 3
 
 class myBot(AddOn):
     def  __init__(self, id, **kwargs):
@@ -46,8 +48,8 @@ class myBot(AddOn):
         )
         self.cam = ThirdPersonCamera(avatar_id=str(self.id)+"_cam",
                            position={"x": -5.5, "y": 5, "z": -2},
-                           follow_object=self.id,
-                           follow_rotate=self.id)
+                           look_at=self.id,)
+                           
         commands.extend(self.cam.get_initialization_commands())
         return commands
     
@@ -73,7 +75,36 @@ class myBot(AddOn):
         if self.action_status.ongoing:
             self.solve_action_status()
     
+    def rotate_by(self, angle):
+        self.action_status.start(self.transform, self.rig, angle, myRecord('rotate', angle))
+        local_angle = min(ROTATE_UNIT_, abs(angle))
+        if angle < 0:
+            local_angle = -local_angle
+        commands = [{"$type": "rotate_object_by", 
+            "angle": local_angle,
+            "id": self.id,
+            "axis": "yaw",
+            }]
+        
+        self.commands.extend(commands)
     
+    
+    def _solve_rotate_by(self):
+        if abs(self.action_status.time_left) <= ROTATE_UNIT_:
+            self.action_status.end()
+        else:
+            if self.action_status.time_left < 0:
+                self.action_status.time_left += ROTATE_UNIT_
+            else:
+                self.action_status.time_left -= ROTATE_UNIT_
+            local_angle = min(ROTATE_UNIT_, abs(self.action_status.time_left))
+            if self.action_status.time_left < 0:
+                local_angle = -local_angle
+            self.commands.extend([{"$type": "rotate_object_by", 
+            "angle": local_angle,
+            "id": self.id,
+            "axis": "yaw",
+            }])
 
     def _solve_move_by(self):
         start_pos, _ = get_pos_and_rot(self.action_status.transform, self.id)
@@ -83,7 +114,9 @@ class myBot(AddOn):
         self.action_status.time_left -= 1
         if distance >= self.action_status.target:
             if self.action_status.time_left > 0:
-                self.commands.append({"$type": "stop_humanoid_animation", "id": self.id})
+                self.commands.append({
+                "$type": "stop_humanoid_animation",
+                'id': self.id})
             self.action_status.end()
         else:
             if self.action_status.time_left == 0:
@@ -101,6 +134,8 @@ class myBot(AddOn):
     def solve_action_status(self):
         if self.action_status.record.name == 'walking_1':
             self._solve_move_by()
+        elif self.action_status.record.name == 'rotate':
+            self._solve_rotate_by()
 
     def move_by(self, dis):
         commands = []
@@ -133,18 +168,22 @@ camera = ThirdPersonCamera(avatar_id="observer",
                            look_at=h.id)
 path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath("test")
 print(f"Images will be saved to: {path}")
-capture = ImageCapture(avatar_ids=["a"], path=path)
+capture = ImageCapture(avatar_ids=["observer"], path=path)
 # Start the controller.
 c.add_ons.extend([h, camera, capture])
 # Create a scene and add a humanoid.
 c.communicate([TDWUtils.create_empty_room(32, 32)
                ])# Add an animation.
-h.move_by(20)
+h.move_by(2)
 
 # Play some loops.
 while h.action_status.ongoing:
     c.communicate([])
 
-for i in range(100):
+h.rotate_by(-100)
+while h.action_status.ongoing:
     c.communicate([])
+for i in range(10):
+    c.communicate([])
+
 c.communicate({"$type": "terminate"})
