@@ -8,14 +8,14 @@ from tdw.add_ons.add_on import AddOn
 from tdw.output_data import OutputData, Transforms, Rigidbodies
 from actions import ActionStatus
 from tdw.librarian import HumanoidAnimationLibrarian
-from utils import myRecord
-from utils import get_pos_and_rot, l2_dis
+from utils import myRecord, get_obj_pos, get_pos_and_rot, l2_dis, euler_yaw
 from icecream import ic
 import math
 from tdw.quaternion_utils import QuaternionUtils
 
 PREFIX_ = 'file:///C:/Users/YangYuxiang/Desktop/proj/resource/'
 ROTATE_UNIT_ = 3
+OBJECT_DIS_ = 0.5
 
 class myBot(AddOn):
     def  __init__(self, id, **kwargs):
@@ -28,14 +28,14 @@ class myBot(AddOn):
         self.lib = HumanoidAnimationLibrarian()
         self.actions_lib = {}
         self.action_seq = []
-
+        self.object_in_hand = None
     
     def get_initialization_commands(self):
         default_value = {
                 'name': 'man_suit', 
                 'url': PREFIX_ + 'man_suit',
-                'position': {'x': -4, 'y': 0, 'z': 0},
-                'rotation': {'x': 0, 'y': 0, 'z': 0},
+                'position': {'x': -4, 'y': 0, 'z': 7},
+                'rotation': {'x': 0, 'y': -190, 'z': 0},
                 'id': self.id}
         commands = [{
             '$type': 'add_humanoid'
@@ -70,8 +70,9 @@ class myBot(AddOn):
                 theta -= 180
         else:
             theta = 0 if pos[3] > curr_pos[3] else 180
-        angle_delta = theta - QuaternionUtils.quaternion_to_euler_angles(curr_angle)[0]
-        dist_delta = l2_dis(pos[0], curr_pos[0], pos[2], curr_pos[2])
+        angle_delta = theta - euler_yaw(curr_angle)
+
+        dist_delta = l2_dis(pos[0], curr_pos[0], pos[2], curr_pos[2]) - 0.7
 
         self.action_seq = [
             {'func':self.rotate_by, 'target':angle_delta},
@@ -79,6 +80,30 @@ class myBot(AddOn):
         ]
         self.action_seq[0]['func'](self.action_seq[0]['target'])
         self.action_seq.pop(0)
+
+    def pick_up(self, obj_id):
+        self.object_in_hand = {'id':obj_id}
+        commands = []
+        if 'pickup' not in self.actions_lib.keys():
+            commands.append(
+                {"$type": "add_humanoid_animation",
+                "name": "hammering",
+                'url': 'https://tdw-public.s3.amazonaws.com/humanoid_animations/linux/2019.2/' + 'hammering'}
+            )
+            self.actions_lib['pickup'] = self.lib.get_record("hammering")
+
+        self.action_status.start(self.transform, self.rig, 0, self.actions_lib['pickup'])
+        self.action_status.time_left = 3
+        """commands.extend([
+            {"$type": "play_humanoid_animation",
+                  "name": 'hammering',
+                  "id": self.id},
+            {"$type": "set_target_framerate",
+                 "framerate": self.actions_lib['pickup'].framerate}
+        ])"""
+        self.commands.extend(commands)
+
+
 
     def on_send(self, resp):
         for i in range(len(resp) - 1):
@@ -90,6 +115,8 @@ class myBot(AddOn):
                     if transforms.get_id(j) == self.id:
                         # Log the position.
                         self.transform = transforms
+                    if self.object_in_hand is not None and transforms.get_id(j) == self.object_in_hand['id']:
+                        self.object_in_hand['trans'] = transforms
             elif r_id == "rigi":
                 rigidbodies = Rigidbodies(resp[i])
                 for j in range(rigidbodies.get_num()):
@@ -142,6 +169,19 @@ class myBot(AddOn):
             "avatar_id": str(self.id)+'_cam',
             "axis": "yaw",
             }])
+            if self.object_in_hand is not None:
+                pos = get_obj_pos(self.transform, self.id, OBJECT_DIS_, local_angle)
+                self.commands.extend(
+                    [{'$type':'teleport_object',
+                    'position':pos,
+                    'id':self.object_in_hand['id']},
+                    {"$type": "rotate_object_by", 
+                    "angle": local_angle,
+                    "id": self.object_in_hand['id'],
+                    "axis": "yaw",
+                    }]
+                )
+
     
     def _solve_look_updown(self):
         if abs(self.action_status.time_left) <= ROTATE_UNIT_:
@@ -164,6 +204,13 @@ class myBot(AddOn):
     def _solve_move_by(self):
         start_pos, _ = get_pos_and_rot(self.action_status.transform, self.id)
         curr_pos, _ = get_pos_and_rot(self.transform, self.id)
+        if self.object_in_hand is not None:
+            pos = get_obj_pos(self.transform, self.id, OBJECT_DIS_)
+            self.commands.extend(
+                [{'$type':'teleport_object',
+                'position':pos,
+                'id':self.object_in_hand['id']}]
+            )
 
         distance = l2_dis(start_pos[0], curr_pos[0], start_pos[2], curr_pos[2])
         self.action_status.time_left -= 1
@@ -193,9 +240,23 @@ class myBot(AddOn):
             self._solve_rotate_by()
         elif self.action_status.record.name == 'look_updown':
             self._solve_look_updown()
+        elif self.action_status.record.name == 'hammering':
+            self._solve_pick_up()
         
         if not(len(self.action_seq) == 0):
             self._solve_action_seq()
+
+    def _solve_pick_up(self):
+        if self.action_status.time_left == 0:
+            self.action_status.end()
+            pos = get_obj_pos(self.transform, self.id, OBJECT_DIS_)
+            self.commands.extend(
+                [{'$type':'teleport_object',
+                'position':pos,
+                'id':self.object_in_hand['id']}]
+            )
+        else:
+            self.action_status.time_left -= 1
 
     def _solve_action_seq(self):
         if not self.action_status.ongoing:
@@ -251,7 +312,7 @@ capture = ImageCapture(avatar_ids=[str(h.id)+"_cam"], path=path)
 c.add_ons.extend([h, capture])
 # Create a scene and add a humanoid.
 obj_id = c.get_unique_id()
-c.communicate([TDWUtils.create_empty_room(32, 32),
+resp = c.communicate([TDWUtils.create_empty_room(32, 32),
         c.get_add_object(model_name="iron_box",
                     library="models_core.json",
                     position={"x": 0, "y": 0, "z": 0},
@@ -260,11 +321,6 @@ c.communicate([TDWUtils.create_empty_room(32, 32),
         'ids':[obj_id],
         'frequency':'always'
         }])# Add an animation.
-h.move_by(2)
-
-# Play some loops.
-while h.action_status.ongoing:
-    resp = c.communicate([])
 for i in range(len(resp) - 1):
     r_id = OutputData.get_data_type_id(resp[i])
     # This is transforms output data.
@@ -277,6 +333,17 @@ for i in range(len(resp) - 1):
 h.navigate_to(pos)
 while h.action_status.ongoing:
     c.communicate([])
+h.pick_up(obj_id)
+while h.action_status.ongoing:
+    c.communicate([])
+h.move_by(2)
+
+# Play some loops.
+while h.action_status.ongoing:
+    resp = c.communicate([])
+h.rotate_by(1000)
+while h.action_status.ongoing:
+    resp = c.communicate([])
 for i in range(10):
     c.communicate([])
 
