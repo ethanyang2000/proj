@@ -103,8 +103,6 @@ class myBot(AddOn):
         ])"""
         self.commands.extend(commands)
 
-
-
     def on_send(self, resp):
         for i in range(len(resp) - 1):
             r_id = OutputData.get_data_type_id(resp[i])
@@ -242,9 +240,23 @@ class myBot(AddOn):
             self._solve_look_updown()
         elif self.action_status.record.name == 'hammering':
             self._solve_pick_up()
+        elif self.action_status.record.name == 'bowling':
+            self._solve_put()
         
         if not(len(self.action_seq) == 0):
             self._solve_action_seq()
+
+    def _solve_put(self):
+        if self.action_status.time_left == 0:
+            self.action_status.end()
+            self.commands.extend(
+                [{'$type':'teleport_object',
+                'position':self.action_status.pos,
+                'id':self.object_in_hand['id']}]
+            )
+            self.object_in_hand = None
+        else:
+            self.action_status.time_left -= 1
 
     def _solve_pick_up(self):
         if self.action_status.time_left == 0:
@@ -297,6 +309,34 @@ class myBot(AddOn):
             }]
         
         self.commands.extend(commands)
+    
+    def put(self, pos=None):
+        if self.object_in_hand is None:
+            raise NotImplementedError
+        if pos is None:
+            pos = get_obj_pos(self.transform, self.id, OBJECT_DIS_)
+            pos['y'] = 0
+        commands = []
+        if 'put' not in self.actions_lib.keys():
+            commands.append(
+                {"$type": "add_humanoid_animation",
+                "name": "bowling",
+                'url': 'https://tdw-public.s3.amazonaws.com/humanoid_animations/linux/2019.2/' + 'bowling'}
+            )
+            self.actions_lib['put'] = self.lib.get_record("bowling")
+
+        self.action_status.start(self.transform, self.rig, 0, self.actions_lib['put'])
+        self.action_status.pos = pos
+        self.action_status.time_left = 3
+        """commands.extend([
+            {"$type": "play_humanoid_animation",
+                  "name": 'bowling',
+                  "id": self.id},
+            {"$type": "set_target_framerate",
+                 "framerate": self.actions_lib['pickup'].framerate}
+        ])"""
+        self.commands.extend(commands)
+
 
 # Add a camera and enable image capture.
 c = Controller(check_version=False)
@@ -341,7 +381,10 @@ h.move_by(2)
 # Play some loops.
 while h.action_status.ongoing:
     resp = c.communicate([])
-h.rotate_by(1000)
+h.rotate_by(100)
+while h.action_status.ongoing:
+    resp = c.communicate([])
+h.put()
 while h.action_status.ongoing:
     resp = c.communicate([])
 for i in range(10):
