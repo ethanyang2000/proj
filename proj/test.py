@@ -1,3 +1,4 @@
+from numpy import angle
 from tdw.controller import Controller
 from tdw.tdw_utils import TDWUtils
 from tdw.add_ons.third_person_camera import ThirdPersonCamera
@@ -10,6 +11,8 @@ from tdw.librarian import HumanoidAnimationLibrarian
 from utils import myRecord
 from utils import get_pos_and_rot, l2_dis
 from icecream import ic
+import math
+from tdw.quaternion_utils import QuaternionUtils
 
 PREFIX_ = 'file:///C:/Users/YangYuxiang/Desktop/proj/resource/'
 ROTATE_UNIT_ = 3
@@ -24,13 +27,14 @@ class myBot(AddOn):
         self.action_status = ActionStatus()
         self.lib = HumanoidAnimationLibrarian()
         self.actions_lib = {}
+        self.action_seq = []
 
     
     def get_initialization_commands(self):
         default_value = {
                 'name': 'man_suit', 
                 'url': PREFIX_ + 'man_suit',
-                'position': {'x': 0, 'y': 0, 'z': -1},
+                'position': {'x': -4, 'y': 0, 'z': 0},
                 'rotation': {'x': 0, 'y': 0, 'z': 0},
                 'id': self.id}
         commands = [{
@@ -48,12 +52,34 @@ class myBot(AddOn):
         )
         self.cam = ThirdPersonCamera(avatar_id=str(self.id)+"_cam",
                            position={"x": -5.5, "y": 5, "z": -2},
-                           follow_object=self.id)
+                           look_at=self.id)
 
         
         commands.extend(self.cam.get_initialization_commands())
         return commands
     
+    def navigate_to(self, pos):
+        curr_pos, curr_angle = get_pos_and_rot(self.transform, self.id)
+        tang = (pos[0]-curr_pos[0])/(pos[2]-curr_pos[2])
+        theta = math.atan(tang)*180/math.pi
+        if pos[0] > curr_pos[0]:
+            while theta < 0:
+                theta += 180
+        elif pos[0] < curr_pos[0]:
+            while theta > 0:
+                theta -= 180
+        else:
+            theta = 0 if pos[3] > curr_pos[3] else 180
+        angle_delta = theta - QuaternionUtils.quaternion_to_euler_angles(curr_angle)[0]
+        dist_delta = l2_dis(pos[0], curr_pos[0], pos[2], curr_pos[2])
+
+        self.action_seq = [
+            {'func':self.rotate_by, 'target':angle_delta},
+            {'func':self.move_by, 'target':dist_delta}
+        ]
+        self.action_seq[0]['func'](self.action_seq[0]['target'])
+        self.action_seq.pop(0)
+
     def on_send(self, resp):
         for i in range(len(resp) - 1):
             r_id = OutputData.get_data_type_id(resp[i])
@@ -167,7 +193,14 @@ class myBot(AddOn):
             self._solve_rotate_by()
         elif self.action_status.record.name == 'look_updown':
             self._solve_look_updown()
+        
+        if not(len(self.action_seq) == 0):
+            self._solve_action_seq()
 
+    def _solve_action_seq(self):
+        if not self.action_status.ongoing:
+            self.action_seq[0]['func'](self.action_seq[0]['target'])
+            self.action_seq.pop(0)
     
     def move_by(self, dis):
         commands = []
@@ -207,6 +240,7 @@ class myBot(AddOn):
 # Add a camera and enable image capture.
 c = Controller(check_version=False)
 h = myBot(id=c.get_unique_id())
+
 """camera = ThirdPersonCamera(avatar_id="observer",
                            position={"x": -5.5, "y": 5, "z": -2},
                            look_at=h.id)"""
@@ -216,15 +250,31 @@ capture = ImageCapture(avatar_ids=[str(h.id)+"_cam"], path=path)
 # Start the controller.
 c.add_ons.extend([h, capture])
 # Create a scene and add a humanoid.
-c.communicate([TDWUtils.create_empty_room(32, 32)
-               ])# Add an animation.
+obj_id = c.get_unique_id()
+c.communicate([TDWUtils.create_empty_room(32, 32),
+        c.get_add_object(model_name="iron_box",
+                    library="models_core.json",
+                    position={"x": 0, "y": 0, "z": 0},
+                    object_id=obj_id),
+        {'$type':'send_transforms',
+        'ids':[obj_id],
+        'frequency':'always'
+        }])# Add an animation.
 h.move_by(2)
 
 # Play some loops.
 while h.action_status.ongoing:
-    c.communicate([])
-
-h.rotate_by(-80)
+    resp = c.communicate([])
+for i in range(len(resp) - 1):
+    r_id = OutputData.get_data_type_id(resp[i])
+    # This is transforms output data.
+    if r_id == "tran":
+        transforms = Transforms(resp[i])
+        for j in range(transforms.get_num()):
+            if transforms.get_id(j) == obj_id:
+                # Log the position.
+                pos = transforms.get_position(j)
+h.navigate_to(pos)
 while h.action_status.ongoing:
     c.communicate([])
 for i in range(10):
