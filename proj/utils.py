@@ -34,6 +34,12 @@ def get_obj_pos(transform, id, dis, delta_angle=None):
     delta_z = dis*math.cos(angle)
     return {'x':float(pos[0]+delta_x),'y':float(1),'z':float(pos[2]+delta_z)}
 
+def all_moving(h, pool):
+    for i in range(len(h)):
+        if h[i].action_status.ongoing is False and len(pool[i]) == 0:
+            return False
+    return True
+
 class myRecord():
     def __init__(self, name, num) -> None:
         self.name = name
