@@ -35,6 +35,7 @@ class Bot(Magnebot):
         self.start_point = None
         self.store_bound(bound)
         self.map = map
+        self.previous_nav = None
 
     def _pick_up(self, target: int, arm: Arm):
         if target in self.dynamic.held[arm]:
@@ -65,13 +66,14 @@ class Bot(Magnebot):
         #ic(target, start)
         #ic(self.map.shape)
         actions, counts = a_star_search(self.map, start, target, self.dynamic.transform.position)
+
+        if actions == None:
+            return
+
         angle = int(eular_yaw(self.dynamic.transform.rotation))
 
         ic(actions, counts)
         ic(start, target)
-        ic(self.map[29])
-        if actions == None:
-            return
 
         if angle < 0:
             angle += 360
@@ -79,6 +81,8 @@ class Bot(Magnebot):
         if actions == 0:
             if angle >= 260 and angle <= 280:
                 pos = grid_to_pos(start[0]-counts, start[1], self.bound)
+                '''if self.map[start[0]-counts-1, start[1]] == 1:
+                    pos[0] += 0.2'''
                 self.move_to(pos)
             else:
                 if angle > 280 or angle <= 45:
@@ -95,6 +99,8 @@ class Bot(Magnebot):
         elif actions == 1:
             if angle >= 170 and angle <= 190:
                 pos = grid_to_pos(start[0], start[1]-counts, self.bound)
+                '''if self.map[start[0], start[1]-counts-1] == 1:
+                    pos[2] += 0.2'''
                 self.move_to(pos)
             else:
                 if angle > 190 and angle <= 315:
@@ -109,7 +115,8 @@ class Bot(Magnebot):
         elif actions == 2:
             if angle >= 80 and angle <= 100:
                 pos = grid_to_pos(start[0]+counts, start[1], self.bound)
-                ic(pos)
+                '''if self.map[start[0]+counts+1, start[1]] == 1:
+                    pos[0] -= 0.2'''
                 self.move_to(pos)
             else:
                 if angle > 100 and angle <= 225:
@@ -126,6 +133,8 @@ class Bot(Magnebot):
         elif actions == 3:
             if angle <= 10 or angle > 350:
                 pos = grid_to_pos(start[0], start[1]+counts, self.bound)
+                '''if self.map[start[0], start[1]+counts+1] == 1:
+                    pos[2] -= 0.2'''
                 self.move_to(pos)
             else:
                 if angle > 10 and angle <= 135:

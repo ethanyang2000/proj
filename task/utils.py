@@ -40,7 +40,7 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
     grid[grid==-1] = 1
 
     #grid[begin_point[0], begin_point[1]] = 0
-    
+
     grid[target_point[0], target_point[1]] = 0
     if grid[begin_point[0], begin_point[1]] == 1:
         begin_point[0] += 1
@@ -127,8 +127,8 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
             else:
                 if not(action_counts == 0):
                     counts.append(action_counts)
-                    action_counts = 0
                     distrilled_actions.append(previous_action)
+                    action_counts = 0
                 previous_action = action
                 action_counts += 1
         else:
@@ -138,11 +138,29 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
     if not(action_counts == 0):
         distrilled_actions.append(previous_action)
         counts.append(action_counts)
+
     np.set_printoptions(threshold=np.inf)
-    
+    ic(actions)
+
     if len(distrilled_actions) == 0:
         return None, None
+
     return distrilled_actions[0], counts[0]
+    '''new_dis = []
+    new_counts = []
+
+    previous_action = distrilled_actions[0]
+    for idx in range(1,len(distrilled_actions)):
+        if distrilled_actions[idx] == previous_action and counts[idx] == 1:
+            pass
+        else:
+            new_dis.append(distrilled_actions[idx])
+            new_counts.append(counts[idx])
+        previous_action = distrilled_actions[idx]
+    
+    if len(new_dis) == 0:
+        return None, None'''
+    return new_dis[0], new_counts[0]
 
 
 def pos_to_grid(x,z, bound):
@@ -153,6 +171,6 @@ def pos_to_grid(x,z, bound):
     return [int(round(i)), int(round(j))]
     
 def grid_to_pos(i: int, j: int, bound):
-    x = bound.x_min + (i * OCCUPANCY_CELL_SIZE)
-    z = bound.z_min + (j * OCCUPANCY_CELL_SIZE)
+    x = bound.x_min + ((i) * OCCUPANCY_CELL_SIZE)
+    z = bound.z_min + ((j) * OCCUPANCY_CELL_SIZE)
     return np.array([x, 0, z])

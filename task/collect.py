@@ -10,6 +10,7 @@ from icecream import ic
 from tdw.tdw_utils import TDWUtils
 from tdw.output_data import OutputData, SegmentationColors, ObiParticles
 from collections import Counter
+from magnebot import ActionStatus
 from utils import any_ongoing
 
 class Collect(BasicTasks):
@@ -155,16 +156,28 @@ class Collect(BasicTasks):
     def step(self, actions):
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
-        self.controller.communicate([])
-        for agent_id in range(self.num_agents):
+        def execute(agents, actions, agent_id):
             if actions[agent_id][0] == 0:
                 self.agents[agent_id].move_towards(actions[agent_id][1])
             elif actions[agent_id][0] == 1:
                 self.agents[agent_id].pick_up(actions[agent_id][1])
             elif actions[agent_id][0] == 2:
                 self.agents[agent_id].drop(actions[agent_id][1])
+
+        self.controller.communicate([])
+        for agent_id in range(self.num_agents):
+            execute(self.agents, actions, agent_id)
+        
         while any_ongoing(self.agents):
             self.controller.communicate([])
+        
+        for agent_id in range(self.num_agents):
+            if self.agents[agent_id].action.status == ActionStatus.collision:
+                self.agents[agent_id].move_by(-0.2)
+        while any_ongoing(self.agents):
+            self.controller.communicate([])
+        
+        #execute(self.agents, actions, agent_id)
 
     def _get_obj_pos(self, obj_id):
         return self.om.transforms[obj_id].position
@@ -172,11 +185,11 @@ class Collect(BasicTasks):
 
 
 if __name__ == '__main__':
-    b = Collect(None, True, 2, '1a', 0)
+    b = Collect(None, True, 2, '2a', 0)
     ids = list(b.target_obj_id.keys())
     actions = [
-        [0,b._get_obj_pos(ids[0])],
-        [0,b._get_obj_pos(ids[1])]
+        [0,b._get_obj_pos(ids[1])],
+        [0,b._get_obj_pos(ids[2])]
     ]
     for i in range(2000):
         b.step(actions)
