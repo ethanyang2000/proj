@@ -74,6 +74,9 @@ class BasicTasks():
             else:
                 self.agents[i].reset(init_pos[i])
             self.controller.communicate([])
+            self.agents[i].collision_detection.exclude_objects.extend(list(self.target_obj_id.keys()))
+        '''self.controller.communicate([{"$type": "set_field_of_view",
+                         "field_of_view": 90}])'''
         print('robots loaded')
 
     def init_scene(self, first):

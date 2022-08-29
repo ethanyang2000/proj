@@ -10,35 +10,50 @@ from icecream import ic
 from tdw.tdw_utils import TDWUtils
 from tdw.output_data import OutputData, SegmentationColors, ObiParticles
 from collections import Counter
-from magnebot import ActionStatus
-from utils import any_ongoing
+from magnebot import ActionStatus, Arm
+from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos
+from constant import constants
 
 class Collect(BasicTasks):
-    NUM_TARGET_OBJECTS = 3
+    NUM_TARGET_OBJECTS = 4
 
     def __init__(self, port, launch_build, num_agents, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True) -> None:
         super().__init__(port, launch_build, num_agents, scene, layout, local_dir, random_seed = random_seed, debug=debug)
         
-        self._target_object_names = ['iron_box']
+        self.constants = constants()
         self.agent_pos = list()
-        self.obj_color = dict()
         self.target_obj_id = dict()
         # Set the room of the goal.
         self.goal_position = list()
-        
-        self.reset(True)
-
+        self.collision_mark = False
+        self.steps = 0
     
     def _init_goal(self):
         self.goal_position.clear()
         target_list = dict()
         for obj_id, trans in self.om.transforms.items():
-            target_list[obj_id] = trans.position
+            if not(obj_id in self.target_obj_id.keys()):
+                target_list[obj_id] = trans.position
+        
+        self.occupancy_map = np.load(str(OCCUPANCY_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}_{self.layout}.npy").resolve()))
 
         target_idx = (self._rng.choice(range(len(target_list))))
+        flag = False
+        goal_id = list(target_list.keys())[target_idx]
+        goal_pos = target_list[list(target_list.keys())[target_idx]]
+        goal_grid = pos_to_grid(goal_pos[0], goal_pos[2], self._scene_bounds)
+        for xx in range(goal_grid[0]-2, goal_grid[0]+3):
+            for yy in range(goal_grid[1]-2, goal_grid[1]+3):
+                if self.occupancy_map[xx, yy] == 0 and not(xx == goal_grid[0] and yy == goal_grid[1]):
+                    goal_grid = [xx,yy]
+                    flag = True
+                    break
+            if flag:break
+        ic(flag)
+        goal_pos = grid_to_pos(goal_grid[0], goal_grid[1], self._scene_bounds)
         self.goal_position.append({
-            'id': list(target_list.keys())[target_idx],
-            'pos':target_list[list(target_list.keys())[target_idx]]
+            'id': goal_id,
+            'pos':goal_pos
         })
         print('goal loaded')
 
@@ -60,7 +75,6 @@ class Collect(BasicTasks):
         
         # Load the map of the rooms in the scene, the occupancy map, and the scene bounds.
         room_map = np.load(str(ROOM_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}.npy").resolve()))
-        self.occupancy_map = np.load(str(OCCUPANCY_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}_{self.layout}.npy").resolve()))
 
         # Prevent objects from spawning at edges of the occupancy map.
         convolve_map = np.zeros_like(self.occupancy_map)
@@ -100,18 +114,13 @@ class Collect(BasicTasks):
                 self.agent_pos.append([x,z])
             else:
                 obj_id = self.controller.get_unique_id()
-                name = self._rng.choice(self._target_object_names)
+                name = self._rng.choice(self.constants.target_objects)
                 self.target_obj_id[obj_id] = name
                 comm = self.controller.get_add_object(model_name=name,
                                         position={"x": x, "y": 0, "z": z}, object_id=obj_id)
+                
                 commands.append(comm)
-
-        commands.append({"$type": "send_segmentation_colors",
-                       "frequency": "once"})
-
-        resp = self.controller.communicate(commands)
-        self._parse_segment_color(resp)
-
+        self.controller.communicate(commands)
         print('target objects loaded')
 
     def reset(self, first=False):
@@ -121,20 +130,37 @@ class Collect(BasicTasks):
         self._init_robots(first)
         if not first:
             self._reset_addons()
+        
+        return self._parse_obs()
     
-    def _parse_segment_color(self, resp):
-        self.obj_color.clear()
+    def is_done(self):
+        goal_pos = self.goal_position[0]['pos']
+        for obj in self.target_obj_id.keys():
+            obj_pos = self.om.transforms[obj].position
+            dis = l2_dis(goal_pos[0], obj_pos[0], goal_pos[2], obj_pos[2])
+            if dis > 4:
+                return False
+        for agent in self.agents:
+            for arm in [Arm.left, Arm.right]:
+                if (agent.dynamic.held[arm]) > 0:
+                    return False
+        return True
 
-        for i in range(len(resp) - 1):
-            r_id = OutputData.get_data_type_id(resp[i])
-            # Get segmentation color output data.
-            if r_id == "segm":
-                segm = SegmentationColors(resp[i])
-                break
-        for j in range(segm.get_num()):
-            object_id = segm.get_object_id(j)
-            segmentation_color = segm.get_object_color(j)
-            self.obj_color[object_id] = segmentation_color
+    def _parse_obs(self):
+        for agent_id in range(self.num_agents):
+            ic('images saved')
+            self.agents[agent_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/agent_'+str(agent_id))
+        agent_pos = [a.dynamic.transform.position for a in self.agents]
+        act_done = [a.action.status == ActionStatus.success for a in self.agents]
+
+        obs = {
+            'object_trans':self.om.transforms,
+            'agent_pos': agent_pos,
+            'goal_id': self.goal_position[0]['id'],
+            'target_objects': list(self.target_obj_id.keys()),
+            'action_done': act_done
+        }
+        return obs
 
     def _parse_obs_per_agent(self, agent_id):
         obs = {
@@ -154,11 +180,34 @@ class Collect(BasicTasks):
                 obs['pos'].append(self.om.transforms[object_id].position)
 
     def step(self, actions):
+        self.steps += 1
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
-        def execute(agents, actions, agent_id):
+        def execute(actions, agent_id):
+            """ tem_pos = self.agents[agent_id].dynamic.transform.position
+            fw = self.agents[agent_id].dynamic.transform.forward
+            tem_pos = [tem_pos[0], tem_pos[1], tem_pos[2], fw[0], fw[1], fw[2]]
+            if self.steps > 1:
+                obs = {
+                    'depth': TDWUtils.get_depth_values(self.agents[agent_id].dynamic.images['depth'], \
+                            width = 960, height = 960),
+                    'FOV':90,
+                    'camera_matrix':self.agents[agent_id].dynamic.camera_matrix,
+                    'agent':tem_pos
+                }
+                self.agents[agent_id].bridge.dep2map(obs) """
+            if actions[agent_id] is None:
+                return
             if actions[agent_id][0] == 0:
-                self.agents[agent_id].move_towards(actions[agent_id][1])
+                if actions[agent_id][1] is None:
+                    self.agents[agent_id].move_towards([0,0,0])
+                else:
+                    pos = self.agents[1-agent_id].dynamic.transform.position
+                    obj_pos = self._get_obj_pos(actions[agent_id][1])
+                    if not(actions[agent_id][1] in list(self.target_obj_id.keys())):
+                        obj_pos = self.goal_position[0]['pos']
+                    grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
+                    self.agents[agent_id].move_towards(obj_pos, grid)
             elif actions[agent_id][0] == 1:
                 self.agents[agent_id].pick_up(actions[agent_id][1])
             elif actions[agent_id][0] == 2:
@@ -166,26 +215,169 @@ class Collect(BasicTasks):
 
         self.controller.communicate([])
         for agent_id in range(self.num_agents):
-            execute(self.agents, actions, agent_id)
+            execute(actions, agent_id)
         
         while any_ongoing(self.agents):
             self.controller.communicate([])
         
         for agent_id in range(self.num_agents):
-            if self.agents[agent_id].action.status == ActionStatus.collision:
-                self.agents[agent_id].move_by(-0.2)
+            if self.agents[agent_id].action.status == ActionStatus.tipping:
+                self.agents[agent_id].move_by(-0.5)
+                ic('tipping')
+            elif self.agents[agent_id].action.status == ActionStatus.collision:
+                self.collision_process(agent_id)
+            
         while any_ongoing(self.agents):
             self.controller.communicate([])
+
+        for agent_id in range(self.num_agents):
+            
+            if actions[agent_id][0] == 1:
+                for arm in [Arm.left, Arm.right]:
+                    self.agents[agent_id].reset_arm(arm)
+                    while any_ongoing(self.agents):
+                        self.controller.communicate([])
+
+        return self._parse_obs()
+
+    def _to_close(self):
+        pos = self.agents[0].dynamic.transform.position
+        pos2 = self.agents[1].dynamic.transform.position
+        dist = l2_dis(pos[0], pos2[0], pos[2], pos2[2])
+        if dist < 1:
+            return True
+        else:return False
+
+    def collision_process(self, agent_id):
+        if self._to_close():
+            if not self.collision_mark:
+                self.agents[agent_id].move_by(-1)
+                self.collision_mark = True
+            else:
+                pos = self.agents[agent_id].dynamic.transform.position
+                pos[2] -= 1
+                self.agents[agent_id].move_to(pos)
+                self.collision_mark = False
+            return
+        if self._check_direction(agent_id):
+            ic('collision')
+            float_pos = self.agents[agent_id].dynamic.transform.position
+            pos = pos_to_grid(float_pos[0], float_pos[2], self._scene_bounds)
+            action = self.agents[agent_id].last_direction
+            ic("-----------------------------------")
+            ic(action)
+            if action == 0:
+                grid1 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
+                grid2 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
+                grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
+                grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
+                if grid1 or grid4:
+                    bias = [0, 0, -0.5]
+                elif grid2 or grid3:
+                    bias = [0, 0, 0.5]
+                else:
+                    self.agents[agent_id].move_by(-0.2)
+                    return
+            elif action == 1:
+                ic('trigger')
+                #self.agents[agent_id].move_by(-0.4)
+                #return
+                grid1 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
+                grid2 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
+                grid3 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
+                grid4 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
+                if grid1 or grid3:
+                    bias = [0.5, 0, 0]
+                elif grid2 or grid4:
+                    bias = [-0.5, 0, 0]
+                else:
+                    self.agents[agent_id].move_by(-0.4)
+                    return
+            elif action == 2:
+                grid1 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
+                grid2 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
+                grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
+                grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
+                if grid1 or grid3:
+                    bias = [0, 0, 0.5]
+                elif grid2 or grid4:
+                    bias = [0, 0, -0.5]
+                else:
+                    self.agents[agent_id].move_by(-0.2)
+                    return
+            elif action == 3:
+                grid1 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
+                grid2 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
+                grid3 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
+                grid4 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
+                if grid1 or grid3:
+                    bias = [-0.5, 0, 0]
+                elif grid2 or grid4:
+                    bias = [0.5, 0, 0]
+                else:
+                    self.agents[agent_id].move_by(-0.2)
+                    return
+            
+            self.agents[agent_id].move_to(float_pos+bias)
+        else:
+            self.agents[agent_id].move_by(-0.25)
+            '''pos = self.agents[agent_id].dynamic.transform.position
+            grid_pos = pos_to_grid(pos[0], pos[2], self._scene_bounds)
+            angle = eular_yaw(self.agents[agent_id].dynamic.transform.rotation)
+            if angle <= 45 or angle > 315: bias = [0,1]
+            elif angle > 45 and angle <= 135: bias = [1,0]
+            elif angle > 135 and angle <= 225: bias = [0,-1]
+            elif angle > 225 and angle <= 315: bias = [-1,0]
+            grid_pos[0] += bias[0]
+            grid_pos[1] += bias[1]
+            if self.occupancy_map[grid_pos[0], grid_pos[1]] == 0:
+                ic('forward')
+                self.agents[agent_id].move_by(0.25)
+            else:
+                ic('backward')
+                self.agents[agent_id].move_by(-0.25)'''
         
-        #execute(self.agents, actions, agent_id)
+    def _check_direction(self, agent_id):
+        angle = eular_yaw(self.agents[agent_id].dynamic.transform.rotation)
+        action = self.agents[agent_id].last_direction
+        if action == 0:
+            if angle <= 290 and angle >= 250:
+                return True
+            else:
+                return False
+        elif action == 1:
+            if angle <= 200 and angle >= 160:
+                return True
+            else:
+                return False
+        elif action == 2:
+            if angle <= 110 and angle >= 70:
+                return True
+            else:
+                return False
+        elif action == 3:
+            if angle <= 20 or angle >= 340:
+                return True
+            else:
+                return False
 
     def _get_obj_pos(self, obj_id):
         return self.om.transforms[obj_id].position
 
+    def _get_visiable_objects(self):
+        ans = [[] for _ in range(self.num_agents)]
+        for agent_id in range(self.num_agents):
+            colors = list(set(Counter(self.agents[agent_id].dynamic.get_pil_images()["id"].getdata())))
+            for o in self.om.objects_static:
+                segmentation_color = self.om.objects_static[o].segmentation_color
+                color = (segmentation_color[0], segmentation_color[1], segmentation_color[2])
+                if color in colors:
+                    ans[agent_id].append(o)
+        return ans
 
 
 if __name__ == '__main__':
-    b = Collect(None, True, 2, '2a', 0)
+    b = Collect(None, True, 2, '5a', 0)
     ids = list(b.target_obj_id.keys())
     actions = [
         [0,b._get_obj_pos(ids[1])],

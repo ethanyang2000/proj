@@ -1,38 +1,41 @@
 from tdw.controller import Controller
-from tdw.add_ons.image_capture import ImageCapture
-from tdw.add_ons.third_person_camera import ThirdPersonCamera
-from tdw.add_ons.floorplan import Floorplan
-from tdw.backend.paths import EXAMPLE_CONTROLLER_OUTPUT_PATH
 from tdw.tdw_utils import TDWUtils
+from tdw.add_ons.third_person_camera import ThirdPersonCamera
+from magnebot import Magnebot, ActionStatus
 
-"""
-Generate a floorplan scene and populate it with a layout of objects.
-"""
-local_dir='E:/tdw_lib/'
-TDWUtils.set_default_libraries(scene_library=local_dir+"scenes.json",
-                                                    model_library=local_dir+'models.json')
+from utils import eular_to_quat, eular_yaw
+
 c = Controller()
-
-# Initialize the floorplan add-on.
-floorplan = Floorplan()
-# Scene 1, visual variant a, object layout 0.
-floorplan.init_scene(scene="1a", layout=0)
-
-# Add a camera and enable image capture.
-camera = ThirdPersonCamera(position={"x": 0, "y": 40, "z": 0},
-                           look_at={"x": 0, "y": 0, "z": 0},
+# Create a camera.
+camera = ThirdPersonCamera(position={"x": 2, "y": 6, "z": -1.5},
+                           look_at={"x": 0, "y": 0.5, "z": 0},
                            avatar_id="a")
-path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath("floorplan_controller")
-print(f"Images will be saved to: {path}")
-capture = ImageCapture(avatar_ids=["a"], pass_masks=["_img"], path=path)
-
-c.add_ons.extend([floorplan, camera, capture])
-# Initialize the scene.
+# Add two Magnebots.
+mid = c.get_unique_id()
+magnebot_0 = Magnebot(position={"x": -2, "y": 0, "z": 0},
+                      robot_id=mid)
+magnebot_1 = Magnebot(position={"x": 2, "y": 0, "z": 0},
+                      robot_id=c.get_unique_id())
+c.add_ons.extend([camera, magnebot_0, magnebot_1])
+# Load the scene.
+c.communicate([{"$type": "load_scene",
+                "scene_name": "ProcGenScene"},
+               TDWUtils.create_empty_room(12, 12)])
+# Move the Magnebots.
+magnebot_0.move_by(-2)
+while magnebot_0.action.status == ActionStatus.ongoing:
+    c.communicate([])
 c.communicate([])
-# Make the image 720p and hide the roof.
-c.communicate([{"$type": "set_screen_size",
-                "width": 1280,
-                "height": 720},
-               {"$type": "set_floorplan_roof",
-                "show": False}])
+pos = magnebot_0.dynamic.transform.position
+rot = eular_yaw(magnebot_0.dynamic.transform.rotation)
+rot += 90
+if rot > 360:
+    rot -= 360
+qua = eular_to_quat([0,0,0])
+from icecream import ic
+pos = [0,0,0]
+ic(pos)
+ic(qua)
+c.communicate([])
+c.communicate([{"$type": 'teleport_robot', 'position':list(pos), 'rotation':list(qua), 'id':mid}])
 c.communicate({"$type": "terminate"})

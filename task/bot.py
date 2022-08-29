@@ -1,3 +1,4 @@
+from copy import deepcopy
 from itertools import count
 from os import environ
 from json import loads
@@ -18,6 +19,7 @@ from icecream import ic
 from utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos
 from tdw.output_data import OutputData, NavMeshPath
 import math
+from bridge import bridge
 
 
 FORWARD_DIS = 1.5
@@ -36,6 +38,8 @@ class Bot(Magnebot):
         self.store_bound(bound)
         self.map = map
         self.previous_nav = None
+        self.last_direction = 3
+        self.bridge = bridge()
 
     def _pick_up(self, target: int, arm: Arm):
         if target in self.dynamic.held[arm]:
@@ -60,24 +64,24 @@ class Bot(Magnebot):
     def turn_right(self):
         self.turn_by(TURN_ANGLE)
 
-    def move_towards(self, target_pos):
+    def move_towards(self, target_pos, grid=None):
+        map = deepcopy(self.map)
+        if grid is not None:
+            map[grid[0], grid[1]] = 1
         target = pos_to_grid(target_pos[0], target_pos[2], self.bound)
         start = pos_to_grid(self.dynamic.transform.position[0], self.dynamic.transform.position[2], self.bound)
         #ic(target, start)
         #ic(self.map.shape)
-        actions, counts = a_star_search(self.map, start, target, self.dynamic.transform.position)
-
+        actions, counts = a_star_search(map, start, target, self.dynamic.transform.position)
+        ic(actions, counts)
         if actions == None:
             return
 
         angle = int(eular_yaw(self.dynamic.transform.rotation))
 
-        ic(actions, counts)
-        ic(start, target)
-
         if angle < 0:
             angle += 360
-        ic(angle)
+
         if actions == 0:
             if angle >= 260 and angle <= 280:
                 pos = grid_to_pos(start[0]-counts, start[1], self.bound)
@@ -145,7 +149,18 @@ class Bot(Magnebot):
                     self.turn_by(270-angle)
                 elif angle > 225 and angle <= 350:
                     self.turn_by(360-angle)
-  
+        
+        self.last_direction = actions 
+    
+    """ def move_towards(self, pos, grid=None):
+        action = self.bridge.nav([pos[0], pos[2]])
+        if action == 0:
+            self.move_by(0.5)
+        elif action == 1:
+            self.turn_by(15)
+        elif action == 2:
+            self.turn_by(-15) """
+
     def store_bound(self, bound):
         self.bound = bound
 

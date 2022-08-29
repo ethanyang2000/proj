@@ -4,6 +4,7 @@ from tdw.quaternion_utils import QuaternionUtils
 from icecream import ic
 import numpy as np
 import math
+from scipy.spatial.transform import Rotation as R
 
 
 MAGNEBOT_RADIUS: float = 0.22
@@ -139,8 +140,7 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
         distrilled_actions.append(previous_action)
         counts.append(action_counts)
 
-    np.set_printoptions(threshold=np.inf)
-    ic(actions)
+    #np.set_printoptions(threshold=np.inf)
 
     if len(distrilled_actions) == 0:
         return None, None
@@ -174,3 +174,7 @@ def grid_to_pos(i: int, j: int, bound):
     x = bound.x_min + ((i) * OCCUPANCY_CELL_SIZE)
     z = bound.z_min + ((j) * OCCUPANCY_CELL_SIZE)
     return np.array([x, 0, z])
+
+def eular_to_quat(eular):
+    ma = R.from_euler('xyz', eular, degrees=True)
+    return ma.as_quat()
