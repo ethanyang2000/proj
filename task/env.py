@@ -4,7 +4,7 @@ from icecream import ic
 
 class TaskEnv():
     
-    def __init__(self, tasktype, port=None, launch_build=True, num_agents=2, scene='1b', layout=0, random_seed=0) -> None:
+    def __init__(self, tasktype, port=None, launch_build=True, num_agents=2, scene='2b', layout=0, random_seed=4) -> None:
         self.steps = 0
         if tasktype == 'collect':
             self.task = Collect(port=port, launch_build=launch_build, num_agents=num_agents, scene=scene,\

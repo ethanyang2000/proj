@@ -13,6 +13,8 @@ from collections import Counter
 from magnebot import ActionStatus, Arm
 from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos
 from constant import constants
+from PIL import Image
+
 
 class Collect(BasicTasks):
     NUM_TARGET_OBJECTS = 4
@@ -49,7 +51,7 @@ class Collect(BasicTasks):
                     flag = True
                     break
             if flag:break
-        ic(flag)
+
         goal_pos = grid_to_pos(goal_grid[0], goal_grid[1], self._scene_bounds)
         self.goal_position.append({
             'id': goal_id,
@@ -147,9 +149,6 @@ class Collect(BasicTasks):
         return True
 
     def _parse_obs(self):
-        for agent_id in range(self.num_agents):
-            ic('images saved')
-            self.agents[agent_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/agent_'+str(agent_id))
         agent_pos = [a.dynamic.transform.position for a in self.agents]
         act_done = [a.action.status == ActionStatus.success for a in self.agents]
 
@@ -184,6 +183,9 @@ class Collect(BasicTasks):
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
         def execute(actions, agent_id):
+            for a_id in range(self.num_agents):
+                if self.steps > 1:
+                    self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/agent_'+str(a_id))
             """ tem_pos = self.agents[agent_id].dynamic.transform.position
             fw = self.agents[agent_id].dynamic.transform.forward
             tem_pos = [tem_pos[0], tem_pos[1], tem_pos[2], fw[0], fw[1], fw[2]]
@@ -200,7 +202,7 @@ class Collect(BasicTasks):
                 return
             if actions[agent_id][0] == 0:
                 if actions[agent_id][1] is None:
-                    self.agents[agent_id].move_towards([0,0,0])
+                    self.agents[agent_id].move_towards([0,0,-3])
                 else:
                     pos = self.agents[1-agent_id].dynamic.transform.position
                     obj_pos = self._get_obj_pos(actions[agent_id][1])
@@ -237,14 +239,14 @@ class Collect(BasicTasks):
                     self.agents[agent_id].reset_arm(arm)
                     while any_ongoing(self.agents):
                         self.controller.communicate([])
-
+        
         return self._parse_obs()
 
     def _to_close(self):
         pos = self.agents[0].dynamic.transform.position
         pos2 = self.agents[1].dynamic.transform.position
         dist = l2_dis(pos[0], pos2[0], pos[2], pos2[2])
-        if dist < 1:
+        if dist < 1.5:
             return True
         else:return False
 
@@ -255,7 +257,7 @@ class Collect(BasicTasks):
                 self.collision_mark = True
             else:
                 pos = self.agents[agent_id].dynamic.transform.position
-                pos[2] -= 1
+                pos[2] -= 3
                 self.agents[agent_id].move_to(pos)
                 self.collision_mark = False
             return
@@ -266,59 +268,62 @@ class Collect(BasicTasks):
             action = self.agents[agent_id].last_direction
             ic("-----------------------------------")
             ic(action)
-            if action == 0:
-                grid1 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
-                grid2 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
-                grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
-                grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
-                if grid1 or grid4:
-                    bias = [0, 0, -0.5]
-                elif grid2 or grid3:
-                    bias = [0, 0, 0.5]
-                else:
-                    self.agents[agent_id].move_by(-0.2)
-                    return
-            elif action == 1:
-                ic('trigger')
-                #self.agents[agent_id].move_by(-0.4)
-                #return
-                grid1 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
-                grid2 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
-                grid3 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
-                grid4 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
-                if grid1 or grid3:
-                    bias = [0.5, 0, 0]
-                elif grid2 or grid4:
-                    bias = [-0.5, 0, 0]
-                else:
-                    self.agents[agent_id].move_by(-0.4)
-                    return
-            elif action == 2:
-                grid1 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
-                grid2 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
-                grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
-                grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
-                if grid1 or grid3:
-                    bias = [0, 0, 0.5]
-                elif grid2 or grid4:
-                    bias = [0, 0, -0.5]
-                else:
-                    self.agents[agent_id].move_by(-0.2)
-                    return
-            elif action == 3:
-                grid1 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
-                grid2 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
-                grid3 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
-                grid4 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
-                if grid1 or grid3:
-                    bias = [-0.5, 0, 0]
-                elif grid2 or grid4:
-                    bias = [0.5, 0, 0]
-                else:
-                    self.agents[agent_id].move_by(-0.2)
-                    return
-            
-            self.agents[agent_id].move_to(float_pos+bias)
+            try:
+                if action == 0:
+                    grid1 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
+                    grid2 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
+                    grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
+                    grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
+                    if grid1:
+                        bias = [0, 0, -0.5]
+                    elif grid2:
+                        bias = [0, 0, 0.5]
+                    else:
+                        self.agents[agent_id].move_by(-0.2)
+                        return
+                elif action == 1:
+                    ic('trigger')
+                    #self.agents[agent_id].move_by(-0.4)
+                    #return
+                    grid1 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
+                    grid2 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
+                    grid3 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
+                    grid4 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
+                    if grid1:
+                        bias = [0.5, 0, 0]
+                    elif grid2:
+                        bias = [-0.5, 0, 0]
+                    else:
+                        self.agents[agent_id].move_by(-0.4)
+                        return
+                elif action == 2:
+                    grid1 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
+                    grid2 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
+                    grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
+                    grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
+                    if grid1:
+                        bias = [0, 0, 0.5]
+                    elif grid2:
+                        bias = [0, 0, -0.5]
+                    else:
+                        self.agents[agent_id].move_by(-0.2)
+                        return
+                elif action == 3:
+                    grid1 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
+                    grid2 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
+                    grid3 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
+                    grid4 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
+                    if grid1:
+                        bias = [-0.5, 0, 0]
+                    elif grid2:
+                        bias = [0.5, 0, 0]
+                    else:
+                        self.agents[agent_id].move_by(-0.2)
+                        return
+                
+                self.agents[agent_id].move_to(float_pos+bias)
+            except:
+                self.agents[agent_id].move_by(-0.25)
         else:
             self.agents[agent_id].move_by(-0.25)
             '''pos = self.agents[agent_id].dynamic.transform.position
