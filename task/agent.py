@@ -1,6 +1,9 @@
+from re import A
 from icecream import ic
+from utils import pos_to_grid
 from utils import l2_dis
 import numpy as np
+import sys
 
 class Agent:
     def __init__(self, num_agents) -> None:
@@ -12,7 +15,7 @@ class Agent:
         self.nav_id = [None, None]
 
     def _arrived(self, trans, obj_id, agent_pos, transport=False):
-        th = 2 if transport else 0.5
+        th = 3 if transport else 1
         pos = trans[obj_id].position
         dist = l2_dis(pos[0], agent_pos[0], pos[2], agent_pos[2])
         if dist < th:
@@ -23,6 +26,9 @@ class Agent:
         agent_pos = obs['agent_pos']
         action_done = obs['action_done']
         trans_id = obs['goal_id']
+        action_space = obs['action_space']
+        room_map = obs['room_map']
+        bound = obs['bound']
 
         for agent_id in range(self.num_agents):
             if self.mode[agent_id] == 'navigation':
@@ -38,13 +44,13 @@ class Agent:
                     self.mode[agent_id] = None
                     self.objects_in_hand[agent_id] += 1
                     self.obj_id_in_hand[agent_id].append(self.nav_target[agent_id])
+            
             elif self.mode[agent_id] == 'drop':
                 if action_done:
                     self.objects_in_hand[agent_id] -= 1
                     self.obj_id_in_hand[agent_id].pop()
                     if self.objects_in_hand[agent_id] == 0:
                         self.mode[agent_id] = None
-
 
         if None in self.mode:
             mask = [(m==None) for m in self.mode]
@@ -53,7 +59,9 @@ class Agent:
                 if mask[idx] == 1:
                     self.mode[idx] = new_mode[idx]
                     self.nav_id[idx] = new_nav[idx]
+        
         actions = [[] for _ in range(self.num_agents)]
+        
         for agent_id in range(self.num_agents):
             if self.mode[agent_id] == 'navigation':
                 actions[agent_id] = [0, self.nav_id[agent_id]]
@@ -67,7 +75,11 @@ class Agent:
                 actions[agent_id] = [1, self.nav_target[agent_id]]
             elif self.mode[agent_id] == 'drop':
                 actions[agent_id] = [2, self.obj_id_in_hand[agent_id][-1]]
-        
+
+            if actions[agent_id][0] == 0 and actions[agent_id][1] is not None:
+                actions[agent_id][1] = self._parse_navigation(action_space[agent_id], actions[agent_id][1],
+                trans, room_map, bound)
+
         ic(actions)
         ic(self.mode)
         return actions
@@ -208,6 +220,13 @@ class Agent:
                 target_id = [None, target_id]
 
         return target_id
-            
+
+    def _parse_navigation(self, action_space, object_id, trans, room_map, bound):
+        if object_id in action_space.keys():
+            return object_id
+        pos = trans[object_id].position
+        grid = pos_to_grid(pos[0], pos[2], bound)
+        room_id = room_map[grid[0], grid[1]]
+        return room_id
 
         

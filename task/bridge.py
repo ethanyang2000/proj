@@ -1,4 +1,5 @@
 import os
+from turtle import position
 
 import numpy as np
 import cv2
@@ -7,9 +8,10 @@ import random
 import time
 import math
 from icecream import ic
+from utils import a_star_search
 
 
-CELL_SIZE = 0.25
+CELL_SIZE = 0.49
 ANGLE = 15
 
 def pos2map(x, z, _scene_bounds):
@@ -19,7 +21,7 @@ def pos2map(x, z, _scene_bounds):
 
 class bridge:
     def __init__(self):
-        self.map_size = (120, 60)
+        self.map_size = (55,22)#(120, 60)
         self._scene_bounds = {
             "x_min": -15,
             "x_max": 15,
@@ -31,21 +33,22 @@ class bridge:
         
     
     def pos2map(self, x, z):
-        i = int(round((x - self._scene_bounds["x_min"]) / CELL_SIZE))
-        j = int(round((z - self._scene_bounds["z_min"]) / CELL_SIZE))
+        i = int(round((x - self._scene_bounds.x_min) / CELL_SIZE))
+        j = int(round((z - self._scene_bounds.z_min) / CELL_SIZE))
         return i, j
         
     def map2pos(self, i, j):
-        x = i * CELL_SIZE + self._scene_bounds["x_min"]
-        z = j * CELL_SIZE + self._scene_bounds["z_min"]
+        x = i * CELL_SIZE + self._scene_bounds.x_min
+        z = j * CELL_SIZE + self._scene_bounds.z_min
         return x, z 
     
     
     def dep2map(self, obs):
         self.obs = obs
+        local_occupancy_map = np.zeros_like(self.occupancy_map, np.int32)
+        local_known_map = np.zeros_like(self.occupancy_map, np.int32)
         depth = self.obs['depth']
-        if depth is None:
-            return
+        
         #camera info
         FOV = self.obs['FOV']
         W, H = depth.shape
@@ -102,6 +105,8 @@ class bridge:
         XX = XX.astype(np.int32)
         ZZ = ZZ.astype(np.int32)
         self.occupancy_map[XX, ZZ] = 1
+        return local_known_map
+        np.savetxt('map.txt', self.occupancy_map,fmt='%d')
             
     def l2_distance(self, st, g):
         return ((st[0] - g[0]) ** 2 + (st[1] - g[1]) ** 2) ** 0.5
@@ -137,9 +142,9 @@ class bridge:
         super_map2 = self.conv2d(map)
         dist_map[super_map2 > 0] = 1000
         dist_map[map > 0] = 100000
-        
-        path = pyastar.astar_path(dist_map, (st_i, st_j),
-            (g_i, g_j), allow_diagonal=False)
+        np.savetxt('dis.txt', dist_map, fmt='%d')
+        dist_map = map
+        path = a_star_search(dist_map, (st_i, st_j), (g_i, g_j), None, True)
         
         return path
              
@@ -151,22 +156,34 @@ class bridge:
         
         #0: free, 1: occupied
         self.occupancy_map = np.zeros(self.map_size, np.int32)
+        self.known_map = np.zeros(self.map_size, np.int32)
         #0: unknown, 1: known        
     
+    def store_map(self, obs, map, scene_bound):
+        self.occupancy_map = map
+        self.obs = obs
+        self._scene_bounds = scene_bound
+
     def nav(self, goal):
+        
         if self.obs is None:
             return 0
         self.position = self.obs["agent"][:3]
         self.forward = self.obs["agent"][3:]
+
+        #local_known_map = self.dep2map()
+        #self.known_map = np.maximum(self.known_map, local_known_map)
             
         path = self.find_shortest_path(self.position, goal, \
                                         self.occupancy_map)
-        i, j = path[min(5, len(path) - 1)]
+        i, j = (path)[min(5, len(path) - 1)]
         x, z = self.map2pos(i, j)
         self.local_goal = [x, z]
         angle = self.get_angle(forward=np.array(self.forward),
                             origin=np.array(self.position),
                             position=np.array([self.local_goal[0], 0, self.local_goal[1]]))
+
+
         if np.abs(angle) < ANGLE:
             action = 0      
         elif angle > 0:
@@ -174,6 +191,5 @@ class bridge:
         else:
             action = 2
 
-        ic(action)
         return action
     

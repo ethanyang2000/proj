@@ -3,7 +3,6 @@ from basic_tasks import BasicTasks
 from tdw.add_ons.floorplan import Floorplan
 from tdw.add_ons.proc_gen_kitchen import ProcGenKitchen
 import numpy as np
-from magnebot.paths import ROOM_MAPS_DIRECTORY, OCCUPANCY_MAPS_DIRECTORY, SPAWN_POSITIONS_PATH
 from json import loads
 from scipy.signal import convolve2d
 from icecream import ic
@@ -14,35 +13,39 @@ from magnebot import ActionStatus, Arm
 from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos
 from constant import constants
 from PIL import Image
-
+from tdw.librarian import ModelLibrarian
 
 class Collect(BasicTasks):
     NUM_TARGET_OBJECTS = 4
 
-    def __init__(self, port, launch_build, num_agents, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True) -> None:
-        super().__init__(port, launch_build, num_agents, scene, layout, local_dir, random_seed = random_seed, debug=debug)
+    def __init__(self, port, launch_build, num_agents, scene_type, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True) -> None:
+        super().__init__(port, launch_build, num_agents, scene_type, scene, layout, local_dir, random_seed = random_seed, debug=debug)
         
-        self.constants = constants()
-        self.agent_pos = list()
+        self.constants = constants('collect')
+        self.agent_init_pos = list()
         self.target_obj_id = dict()
-        # Set the room of the goal.
+        self.target_obj_cate = dict()
+        
         self.goal_position = list()
         self.collision_mark = False
         self.steps = 0
     
     def _init_goal(self):
         self.goal_position.clear()
+
         target_list = dict()
         for obj_id, trans in self.om.transforms.items():
             if not(obj_id in self.target_obj_id.keys()):
                 target_list[obj_id] = trans.position
-        
-        self.occupancy_map = np.load(str(OCCUPANCY_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}_{self.layout}.npy").resolve()))
 
         target_idx = (self._rng.choice(range(len(target_list))))
         flag = False
         goal_id = list(target_list.keys())[target_idx]
+        for o in self.om.objects_static:
+            if 'table' in self.om.objects_static[o].name:
+                goal_id = o
         goal_pos = target_list[list(target_list.keys())[target_idx]]
+        goal_pos = self.om.transforms[goal_id].position
         goal_grid = pos_to_grid(goal_pos[0], goal_pos[2], self._scene_bounds)
         for xx in range(goal_grid[0]-2, goal_grid[0]+3):
             for yy in range(goal_grid[1]-2, goal_grid[1]+3):
@@ -61,7 +64,7 @@ class Collect(BasicTasks):
 
     def _init_robot_pos(self):
         bot_pos = list()
-        for p in self.agent_pos:
+        for p in self.agent_init_pos:
             bot_pos.append({'x':p[0], 'y':0, 'z':p[1]})
         return bot_pos
 
@@ -69,14 +72,11 @@ class Collect(BasicTasks):
         pass
 
     def _init_target_objects(self):
-        # Clear the list of target objects and containers.
-        self.agent_pos.clear()
+        self.agent_init_pos.clear()
         self.target_obj_id.clear()
-
-        commands = list()
+        lib = ModelLibrarian(library='models_core.json')
         
-        # Load the map of the rooms in the scene, the occupancy map, and the scene bounds.
-        room_map = np.load(str(ROOM_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}.npy").resolve()))
+        commands = list()
 
         # Prevent objects from spawning at edges of the occupancy map.
         convolve_map = np.zeros_like(self.occupancy_map)
@@ -84,13 +84,12 @@ class Collect(BasicTasks):
         convolve_map[self.occupancy_map == 0] = 0
         conv = np.ones((3, 3))
         convolve_map = convolve2d(convolve_map, conv, mode="same", boundary="fill")
-
-        # Sort all free positions on the occupancy map by room.
+        
         rooms = dict()
 
-        for ix, iy in np.ndindex(room_map.shape):
-            room_index = room_map[ix][iy]
-            if convolve_map[ix][iy] == 0:
+        for ix, iy in np.ndindex(self.room_map.shape):
+            room_index = self.room_map[ix][iy]
+            if convolve_map[ix][iy] == 0 and self.room_map[ix][iy] > -1:
                 if room_index not in rooms:
                     rooms[room_index] = list()
                 rooms[room_index].append((ix, iy))
@@ -113,16 +112,26 @@ class Collect(BasicTasks):
             # Get the (x, z) coordinates for this position.
             x, z = self.get_occupancy_position(ix, iy)
             if i >= Collect.NUM_TARGET_OBJECTS:
-                self.agent_pos.append([x,z])
+                self.agent_init_pos.append([x,z])
             else:
                 obj_id = self.controller.get_unique_id()
                 name = self._rng.choice(self.constants.target_objects)
                 self.target_obj_id[obj_id] = name
+                for l in lib.records:
+                    if l.name == name:
+                        self.target_obj_cate[obj_id] = l.wcategory
+                        break
                 comm = self.controller.get_add_object(model_name=name,
                                         position={"x": x, "y": 0, "z": z}, object_id=obj_id)
                 
                 commands.append(comm)
         self.controller.communicate(commands)
+        if self.scene_type == 'kitchen':
+            self.map_manager.generate()
+            self.controller.communicate([])
+            self.occupancy_map = self.map_manager.occupancy_map
+            self.map_manager.show()
+            self._scene_bounds = self.map_manager.scene_bounds
         print('target objects loaded')
 
     def reset(self, first=False):
@@ -136,11 +145,12 @@ class Collect(BasicTasks):
         return self._parse_obs()
     
     def is_done(self):
+        done_th = 4 if self.scene_type == 'house' else 1.5
         goal_pos = self.goal_position[0]['pos']
         for obj in self.target_obj_id.keys():
             obj_pos = self.om.transforms[obj].position
             dis = l2_dis(goal_pos[0], obj_pos[0], goal_pos[2], obj_pos[2])
-            if dis > 4:
+            if dis > done_th:
                 return False
         for agent in self.agents:
             for arm in [Arm.left, Arm.right]:
@@ -151,32 +161,63 @@ class Collect(BasicTasks):
     def _parse_obs(self):
         agent_pos = [a.dynamic.transform.position for a in self.agents]
         act_done = [a.action.status == ActionStatus.success for a in self.agents]
+        obj_graph = [self._get_partial_objects(a) for a in range(self.num_agents)]
+        action_space = self._get_action_space(obj_graph)
 
         obs = {
             'object_trans':self.om.transforms,
             'agent_pos': agent_pos,
             'goal_id': self.goal_position[0]['id'],
             'target_objects': list(self.target_obj_id.keys()),
-            'action_done': act_done
+            'action_done': act_done,
+            'action_space': action_space,
+            'object_graph': obj_graph,
+            'room_map': self.room_map,
+            'bound': self._scene_bounds
         }
         return obs
 
-    def _parse_obs_per_agent(self, agent_id):
-        obs = {
-            'id':[],
-            'pos':[],
-            'relative_pos':[],
-            'name':[]
-        }
-        pil_image = self.agent_cap[agent_id].get_pil_images()[str(agent_id)]["_id"]
-        colors = Counter(pil_image.getdata())
-        # Get the percentage of the image occupied by each object.
-        for object_id in self.obj_color:
-            segmentation_color = tuple(self.obj_color[object_id])
-            if segmentation_color in colors:
-                obs['id'].append(object_id)
-                obs['name'].append(self.om.objects_static[object_id].name)
-                obs['pos'].append(self.om.transforms[object_id].position)
+    def _get_partial_objects(self, agent_id):
+        obs = []
+        pos = self.agents[agent_id].dynamic.transform.position
+        grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
+        room_id = self.room_map[grid[0], grid[1]]
+                
+        for obj_id in self.om.transforms:
+            trans = self.om.transforms[obj_id]
+            pos = trans.position
+            grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
+            obj_room = self.room_map[grid[0], grid[1]]
+            if obj_room == room_id:
+                try: name = self.om.objects_static[obj_id].name
+                except: name = self.target_obj_id[obj_id]
+                temp_ans = {
+                    'id': obj_id,
+                    'name': name,
+                    'position': trans.position
+                }
+                obs.append(temp_ans)
+        return obs
+
+    def _get_action_space(self, obj_graph=None):
+        """ visible_objects = self._get_visiable_objects()
+        action_space = [dict() for _ in range(self.num_agents)]
+        for agent_id in range(self.num_agents):
+            for object_id in visible_objects[agent_id]:
+                action_space[agent_id][object_id] = self.actions.get_actions(self.om.objects_static[object_id].category)
+            for room in self.room_center.keys():
+                action_space[agent_id][room] = [0]
+        return action_space, visible_objects """
+        action_space = [dict() for _ in range(self.num_agents)]
+        for agent_id in range(self.num_agents):
+            for obj in obj_graph[agent_id]:
+                object_id = obj['id']
+                try: cate = self.om.objects_static[object_id].category
+                except: cate = self.target_obj_cate[object_id]
+                action_space[agent_id][object_id] = self.actions.get_actions(cate)
+            for room in self.room_center.keys():
+                action_space[agent_id][room] = [0]
+        return action_space
 
     def step(self, actions):
         self.steps += 1
@@ -197,7 +238,9 @@ class Collect(BasicTasks):
                     'camera_matrix':self.agents[agent_id].dynamic.camera_matrix,
                     'agent':tem_pos
                 }
-                self.agents[agent_id].bridge.dep2map(obs) """
+                #self.agents[agent_id].bridge.dep2map(obs)
+                self.agents[agent_id].bridge.store_map(obs, self.occupancy_map, self._scene_bounds) """
+
             if actions[agent_id] is None:
                 return
             if actions[agent_id][0] == 0:
@@ -251,6 +294,10 @@ class Collect(BasicTasks):
         else:return False
 
     def collision_process(self, agent_id):
+        ic('collision')
+        self.agents[agent_id].move_by(-0.3)
+        return
+
         if self._to_close():
             if not self.collision_mark:
                 self.agents[agent_id].move_by(-1)
@@ -272,8 +319,6 @@ class Collect(BasicTasks):
                 if action == 0:
                     grid1 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
                     grid2 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
-                    grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
-                    grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
                     if grid1:
                         bias = [0, 0, -0.5]
                     elif grid2:
@@ -287,8 +332,6 @@ class Collect(BasicTasks):
                     #return
                     grid1 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
                     grid2 = (self.occupancy_map[pos[0]-1, pos[1]-1] == 0)
-                    grid3 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
-                    grid4 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
                     if grid1:
                         bias = [0.5, 0, 0]
                     elif grid2:
@@ -299,8 +342,6 @@ class Collect(BasicTasks):
                 elif action == 2:
                     grid1 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
                     grid2 = (self.occupancy_map[pos[0]+1, pos[1]-1] == 0)
-                    grid3 = (self.occupancy_map[pos[0], pos[1]+1] == 0)
-                    grid4 = (self.occupancy_map[pos[0], pos[1]-1] == 0)
                     if grid1:
                         bias = [0, 0, 0.5]
                     elif grid2:
@@ -311,8 +352,6 @@ class Collect(BasicTasks):
                 elif action == 3:
                     grid1 = (self.occupancy_map[pos[0]-1, pos[1]+1] == 0)
                     grid2 = (self.occupancy_map[pos[0]+1, pos[1]+1] == 0)
-                    grid3 = (self.occupancy_map[pos[0]-1, pos[1]] == 0)
-                    grid4 = (self.occupancy_map[pos[0]+1, pos[1]] == 0)
                     if grid1:
                         bias = [-0.5, 0, 0]
                     elif grid2:
@@ -372,12 +411,14 @@ class Collect(BasicTasks):
     def _get_visiable_objects(self):
         ans = [[] for _ in range(self.num_agents)]
         for agent_id in range(self.num_agents):
-            colors = list(set(Counter(self.agents[agent_id].dynamic.get_pil_images()["id"].getdata())))
-            for o in self.om.objects_static:
-                segmentation_color = self.om.objects_static[o].segmentation_color
-                color = (segmentation_color[0], segmentation_color[1], segmentation_color[2])
-                if color in colors:
-                    ans[agent_id].append(o)
+            try:
+                colors = list(set(Counter(self.agents[agent_id].dynamic.get_pil_images()["id"].getdata()))) 
+                for o in self.om.objects_static:
+                    segmentation_color = self.om.objects_static[o].segmentation_color
+                    color = (segmentation_color[0], segmentation_color[1], segmentation_color[2])
+                    if color in colors:
+                        ans[agent_id].append(o)
+            except:pass
         return ans
 
 

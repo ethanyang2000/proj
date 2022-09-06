@@ -9,17 +9,22 @@ from tdw.add_ons.proc_gen_kitchen import ProcGenKitchen
 from tdw.add_ons.object_manager import ObjectManager
 from tdw.scene_data.scene_bounds import SceneBounds
 from tdw.add_ons.step_physics import StepPhysics
+from tdw.add_ons.occupancy_map import OccupancyMap
+from tdw.add_ons.proc_gen_kitchen import ProcGenKitchen
+from magnebot.paths import ROOM_MAPS_DIRECTORY, OCCUPANCY_MAPS_DIRECTORY, SPAWN_POSITIONS_PATH
 import numpy as np
 from pathlib import Path
 import os
 from icecream import ic
 from bot import Bot
+from constant import available_actions
+from utils import grid_to_pos
 
 MAGNEBOT_RADIUS: float = 0.22
 OCCUPANCY_CELL_SIZE: float = (MAGNEBOT_RADIUS * 2) + 0.05
 
 class BasicTasks():
-    def __init__(self, port, launch_build, num_agents, scene, layout, local_dir, random_seed, debug) -> None:
+    def __init__(self, port, launch_build, num_agents, scene_type, scene, layout, local_dir, random_seed, debug) -> None:
         if local_dir is not None:
             TDWUtils.set_default_libraries(scene_library=local_dir+"scenes.json",
                                                     model_library=local_dir+'models.json')
@@ -32,32 +37,42 @@ class BasicTasks():
         self._debug = debug
         self.scene = scene
         self.layout = layout
+        self.scene_type = scene_type
 
         self.agents = list()
+        self.actions = available_actions()
 
-        if random_seed is not None:
-            self._rng = np.random.RandomState(random_seed)
+        self._rng = np.random.RandomState(random_seed)
 
         self.controller = Controller()
-        self.scene_instance = Floorplan()
 
-        self.scene_instance.init_scene(scene, layout)
+
+        if scene_type == 'kitchen':
+            self.scene_instance = ProcGenKitchen()
+            self.scene_instance.create(scene='mm_kitchen_2b')
+        elif scene_type == 'house':
+            self.scene_instance = Floorplan()
+            self.scene_instance.init_scene(scene, layout)
+        
         self.om = ObjectManager()
+        self.map_manager = OccupancyMap(cell_size=0.49)
         self._step_physics: StepPhysics = StepPhysics(10)
+        
+        camera_height = 20 if scene_type == 'kitchen' else 40
 
-        self.camera = ThirdPersonCamera(position={"x": 0, "y": 40, "z": 0},
+        self.camera = ThirdPersonCamera(position={"x": 0, "y": camera_height, "z": 0},
                                 look_at={"x": 0, "y": 0, "z": 0},
                                 avatar_id="bird_view")
+        
         self.capture_path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath('demo_epi_0')
         self.capture = ImageCapture(avatar_ids=['bird_view'], path=self.capture_path)
-        self.controller.add_ons.extend([self.scene_instance, self.camera, self.capture, self.om, self._step_physics])
+        self.controller.add_ons.extend([self.scene_instance, self.camera, self.capture, self.om, self._step_physics, self.map_manager])
         self.controller.communicate([{"$type": "set_screen_size",
                 "width": 1280,
                 "height": 720}])
         
     def _init_robot_pos(self):
         pass
-
 
     def terminate(self):
         self.controller.communicate([])
@@ -80,8 +95,37 @@ class BasicTasks():
         print('robots loaded')
 
     def init_scene(self, first):
-          self._init_floorplan(self.scene, self.layout, first)
-    
+        if self.scene_type == 'kitchen':
+            self.map_manager.generate()
+            self.controller.communicate([])
+            self.occupancy_map = self.map_manager.occupancy_map
+            self.room_map = np.zeros_like(self.occupancy_map)
+
+        elif self.scene_type == 'house':
+            self.occupancy_map = np.load(str(OCCUPANCY_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}_{self.layout}.npy").resolve()))
+            self._init_floorplan(self.scene, self.layout, first)
+            self.room_map = np.load(str(ROOM_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}.npy").resolve()))
+            self.room_map[self.occupancy_map==-1] = -1
+            
+        resp = self.controller.communicate([{"$type": "set_floorplan_roof",
+                    "show": False},{"$type": "send_scene_regions"}])
+        self._scene_bounds = SceneBounds(resp)
+        
+        if self.scene_type == 'house':
+            room_num = np.max(self.room_map)
+            self.room_center = {}
+            for i in range(0,room_num+1):
+                bounds = np.where(self.room_map==i)[0]
+                xx = bounds[0]
+                yy = bounds[1]
+                xx_min = np.min(xx)
+                xx_max = np.max(xx)
+                yy_min = np.min(yy)
+                yy_max = np.max(yy)
+                x = round((xx_max+xx_min)/2)
+                y = round((yy_max+yy_min)/2)
+                self.room_center[i] = grid_to_pos(x,y,self._scene_bounds)
+            
     def _init_target_objects(self):
         pass
 
@@ -89,27 +133,7 @@ class BasicTasks():
         if not first:
             self.scene_instance.init_scene(scene=scene, layout=layout)
             self.controller.communicate(self.scene_instance.commands)
-        else:
-            resp = self.controller.communicate([{"$type": "set_floorplan_roof",
-                    "show": False},{"$type": "send_scene_regions"},{"$type": "bake_nav_mesh"}])
-        
-            self._scene_bounds = SceneBounds(resp)
-            commands = []
-            for obj in self.om.transforms.keys():
-                commands.append({"$type": "make_nav_mesh_obstacle",
-                "id": obj,
-                "carve_type": "all",
-                "scale": 0.5,
-                "shape": "box"})
-                commands.append({"$type": "bake_nav_mesh"})
-            self.controller.communicate(commands)
         print('scene loaded')
-
-    def _init_kitchen(self):
-        kitchen = ProcGenKitchen()
-        kitchen.create()
-        self.controller.add_ons.append(kitchen)
-        self.controller.add_ons.extend([self.camera, self.capture])
     
     def get_occupancy_position(self, i: int, j: int):
         x = self._scene_bounds.x_min + (i * OCCUPANCY_CELL_SIZE)

@@ -16,7 +16,7 @@ from tdw.add_ons.third_person_camera import ThirdPersonCamera
 from magnebot import Magnebot, ActionStatus
 from tdw.tdw_utils import TDWUtils
 from icecream import ic
-from utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos
+from utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos, rrtPlanner
 from tdw.output_data import OutputData, NavMeshPath
 import math
 from bridge import bridge
@@ -68,12 +68,22 @@ class Bot(Magnebot):
         map = deepcopy(self.map)
         if grid is not None:
             map[grid[0], grid[1]] = 1
+        rrt = rrtPlanner(map, self.bound)
+        rrt.set_points([self.dynamic.transform.position[0], self.dynamic.transform.position[2]],[target_pos[0], target_pos[2]])
+        path = rrt.planning()
+        short_goal = path[-2]
+        target = np.array([short_goal[0],0,short_goal[1]])
+        ic(target)
+        self.move_to(target)
+
+    """ def move_towards(self, target_pos, grid=None):
+        map = deepcopy(self.map)
+        if grid is not None:
+            map[grid[0], grid[1]] = 1
         target = pos_to_grid(target_pos[0], target_pos[2], self.bound)
         start = pos_to_grid(self.dynamic.transform.position[0], self.dynamic.transform.position[2], self.bound)
-        #ic(target, start)
-        #ic(self.map.shape)
-        actions, counts = a_star_search(map, start, target, self.dynamic.transform.position)
-        ic(actions, counts)
+        actions, counts = a_star_search(map, start, target, None)
+                
         if actions == None:
             return
 
@@ -114,7 +124,6 @@ class Bot(Magnebot):
                 elif angle <= 45:
                     self.turn_by(90-angle)
                 elif angle > 45 and angle <= 170:
-                    ic()
                     self.turn_by(180-angle)
         elif actions == 2:
             if angle >= 80 and angle <= 100:
@@ -150,7 +159,7 @@ class Bot(Magnebot):
                 elif angle > 225 and angle <= 350:
                     self.turn_by(360-angle)
         
-        self.last_direction = actions 
+        self.last_direction = actions """
     
     """ def move_towards(self, pos, grid=None):
         action = self.bridge.nav([pos[0], pos[2]])

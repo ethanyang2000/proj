@@ -5,7 +5,9 @@ from icecream import ic
 import numpy as np
 import math
 from scipy.spatial.transform import Rotation as R
-
+import random
+import os
+from matplotlib import pyplot as plt
 
 MAGNEBOT_RADIUS: float = 0.22
 OCCUPANCY_CELL_SIZE: float = (MAGNEBOT_RADIUS * 2) + 0.05
@@ -31,8 +33,7 @@ def any_ongoing(bots):
             return True
     return False
 
-def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
-    pos = [start_pos[0], start_pos[2]]
+def a_star_search(grid: list, begin_point: list, target_point: list, start_pos, return_path = False):
     actions = []
     def cost(inp):
         return inp[0]
@@ -145,6 +146,8 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos):
     if len(distrilled_actions) == 0:
         return None, None
 
+    if return_path:
+        return [ele for ele in reversed(invpath)]
     return distrilled_actions[0], counts[0]
     '''new_dis = []
     new_counts = []
@@ -178,3 +181,137 @@ def grid_to_pos(i: int, j: int, bound):
 def eular_to_quat(eular):
     ma = R.from_euler('xyz', eular, degrees=True)
     return ma.as_quat()
+
+
+class Node():
+    def __init__(self, pos):
+        self.x = pos[0]
+        self.y = pos[1]
+        self.parent = None
+ 
+ 
+class rrtPlanner():
+ 
+    def __init__(self, map, bound, step_length=0.6):
+        self.step_length = step_length
+        self.bound = bound
+        self.sample_rate = 0.05
+        self.max_iter = 10000
+        self.map = map
+        self.nodes = list()
+ 
+    def set_points(self, start, goal):
+        self.start = Node(start)
+        self.goal = Node(goal)
+        self.nodes.append(self.start)
+
+    def get_random_node(self):
+        node_x = random.uniform(self.bound.x_min, self.bound.x_max)
+        node_y = random.uniform(self.bound.z_min, self.bound.z_max)
+        node = [node_x, node_y]
+ 
+        return node
+ 
+    def get_nearest_node(self, node_list, rnd):
+        d_list = [(node.x - rnd[0]) ** 2 + (node.y - rnd[1]) ** 2 for node in node_list]
+        min_index = d_list.index(min(d_list))
+        return node_list[min_index], min_index
+ 
+    def collision_check(self, new_node):
+        pos = [new_node.x, new_node.y]
+        grid = pos_to_grid(pos[0], pos[1], self.bound)
+        ans = 0
+        try: 
+            ans += not(self.map[grid[0], grid[1]] == 0)
+        except: ans = 1
+        dis = [(node.x - new_node.x) ** 2 + (node.y - new_node.y) ** 2 for node in self.nodes]
+        if min(dis) < 0.5**2:
+            ans += 1
+        return ans > 0
+ 
+    def _draw(self, nodes):
+        plt.clf()  # 清除上次画的图
+        for node in nodes:
+            if node.parent is not None:
+                plt.plot([node.x, self.nodes[node.parent].x], [
+                         node.y, self.nodes[node.parent].y], "-g")
+ 
+ 
+        plt.plot(self.start.x, self.start.y, "^r")
+        plt.plot(self.goal.x, self.goal.y, "^b")
+        plt.axis([self.bound.x_min, self.bound.x_max, self.bound.z_min, self.bound.z_max])
+        plt.grid(True)
+        plt.pause(0.01)
+
+    def planning(self):
+        iters = 0
+        while iters < self.max_iter:
+            iters += 1
+            # Random Sampling
+            if random.random() > self.sample_rate:
+                rnd = self.get_random_node()
+            else:
+                rnd = [self.goal.x, self.goal.y]
+
+            # Find nearest node
+            nearest_node, idx = self.get_nearest_node(self.nodes, rnd)
+ 
+            # 返回弧度制
+            theta = math.atan2(rnd[1] - nearest_node.y, rnd[0] - nearest_node.x)
+ 
+            new_x = nearest_node.x + self.step_length * math.cos(theta)
+            new_y = nearest_node.y + self.step_length * math.sin(theta)
+            new_node = Node([new_x, new_y])
+            new_node.parent = idx
+ 
+            if self.collision_check(new_node):
+                continue
+                
+            self.nodes.append(new_node)
+ 
+            dist = ((new_node.x - self.goal.x)**2+(new_node.y - self.goal.y)**2)**0.5
+            if dist <= 0.4:
+                break
+        
+        path = [[self.goal.x, self.goal.y]]
+        path_nodes = [self.goal]
+        last_index = len(self.nodes) - 1
+        while self.nodes[last_index].parent is not None:
+            node = self.nodes[last_index]
+            path.append([node.x, node.y])
+            path_nodes.append(node)
+            last_index = node.parent
+        path.append([self.start.x, self.start.y])
+        path_nodes.append(self.start)
+        
+        del_list = []
+        for i in range(1,len(path_nodes)-1):
+            del_flag = self.merge_nodes(path_nodes[i-1], path_nodes[i], path_nodes[i+1])
+            if del_flag:
+                del_list.append(i)
+        
+        new_path = []
+        new_path_nodes = []
+        for i in range(len(path)):
+            if not(i in del_list):
+                new_path.append(path[i])
+                new_path_nodes.append(path_nodes[i])
+        self._draw(new_path_nodes)
+        ic(iters)
+        return new_path
+
+    def merge_nodes(self, node1, node2, node3):
+        del_flag = True
+        grid1 = pos_to_grid(node1.x, node2.y, self.bound)
+        grid3 = pos_to_grid(node3.x, node3.y, self.bound)
+        minx = min(grid1[0], grid3[0])
+        maxx = max(grid1[0], grid3[0])
+        miny = min(grid1[1], grid3[1])
+        maxy = max(grid1[1], grid3[1])
+        for x in range(minx, maxx+1):
+            for y in range(miny, maxy+1):
+                if self.map[x,y] != 0:
+                    del_flag = False
+        if del_flag:
+            node1.parent = node2.parent
+        return del_flag

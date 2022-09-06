@@ -78,7 +78,6 @@ class Bot(Magnebot):
                 p = TDWUtils.array_to_vector3(point)
                 p['y'] = 0
                 self.navigation_plan.append(p)
-            ic(self.navigation_plan)
         else:
             if self.start_point is not None and self.navigation_done == False:
                 pos = self.dynamic.transform.position
