@@ -26,7 +26,7 @@ FORWARD_DIS = 1.5
 ARRIVE_AT = 0.2
 TURN_ANGLE = 90
 class Bot(Magnebot):
-    def __init__(self, position, robot_id, debug=True, bound=None, map=None):
+    def __init__(self, position, robot_id, debug=True, bound=None, map=None, rng=None):
         super().__init__(position=position, robot_id=robot_id, check_version=False)
 
         self._debug = debug
@@ -40,6 +40,7 @@ class Bot(Magnebot):
         self.previous_nav = None
         self.last_direction = 3
         self.bridge = bridge()
+        self._rng = rng
 
     def _pick_up(self, target: int, arm: Arm):
         if target in self.dynamic.held[arm]:
@@ -68,13 +69,13 @@ class Bot(Magnebot):
         map = deepcopy(self.map)
         if grid is not None:
             map[grid[0], grid[1]] = 1
-        rrt = rrtPlanner(map, self.bound)
+        rrt = rrtPlanner(map, self.bound, rng=self._rng)
         rrt.set_points([self.dynamic.transform.position[0], self.dynamic.transform.position[2]],[target_pos[0], target_pos[2]])
-        path = rrt.planning()
-        short_goal = path[-2]
-        target = np.array([short_goal[0],0,short_goal[1]])
-        ic(target)
-        self.move_to(target)
+        path, found = rrt.planning()
+        if found:
+            short_goal = path[-2]
+            target = np.array([short_goal[0],0,short_goal[1]])
+            self.move_to(target)
 
     """ def move_towards(self, target_pos, grid=None):
         map = deepcopy(self.map)

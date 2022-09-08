@@ -18,32 +18,41 @@ from tdw.librarian import ModelLibrarian
 class Collect(BasicTasks):
     NUM_TARGET_OBJECTS = 4
 
-    def __init__(self, port, launch_build, num_agents, scene_type, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True) -> None:
+    def __init__(self, port, launch_build, num_agents, scene_type, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True, log=None) -> None:
         super().__init__(port, launch_build, num_agents, scene_type, scene, layout, local_dir, random_seed = random_seed, debug=debug)
         
         self.constants = constants('collect')
         self.agent_init_pos = list()
         self.target_obj_id = dict()
         self.target_obj_cate = dict()
+        self.log = log
+        if self.log is not None:
+            self.log['trajectory'] = dict()
         
         self.goal_position = list()
-        self.collision_mark = False
+        self.collision_count = [None for _ in range(self.num_agents)]
         self.steps = 0
+        self.tip_flag = True
+        self.lock_step = 0
+        self.obs = None
+        self.random_seed = random_seed
     
     def _init_goal(self):
         self.goal_position.clear()
 
         target_list = dict()
-        for obj_id, trans in self.om.transforms.items():
+        """ for obj_id, trans in self.om.transforms.items():
             if not(obj_id in self.target_obj_id.keys()):
-                target_list[obj_id] = trans.position
-
+                target_list[obj_id] = trans.position """
+        for o in self.om.objects_static:
+            if self.om.objects_static[o].category == 'sofa':
+                target_list[o] = self.om.transforms[o].position
         target_idx = (self._rng.choice(range(len(target_list))))
         flag = False
         goal_id = list(target_list.keys())[target_idx]
-        for o in self.om.objects_static:
+        """ for o in self.om.objects_static:
             if 'table' in self.om.objects_static[o].name:
-                goal_id = o
+                goal_id = o """
         goal_pos = target_list[list(target_list.keys())[target_idx]]
         goal_pos = self.om.transforms[goal_id].position
         goal_grid = pos_to_grid(goal_pos[0], goal_pos[2], self._scene_bounds)
@@ -123,7 +132,7 @@ class Collect(BasicTasks):
                         break
                 comm = self.controller.get_add_object(model_name=name,
                                         position={"x": x, "y": 0, "z": z}, object_id=obj_id)
-                
+
                 commands.append(comm)
         self.controller.communicate(commands)
         if self.scene_type == 'kitchen':
@@ -142,7 +151,12 @@ class Collect(BasicTasks):
         if not first:
             self._reset_addons()
         
-        return self._parse_obs()
+        self.obs = self._parse_obs()
+        if self.log is not None:
+            self.log['trajectory'][self.steps] = {
+                'obs':self.obs
+            }
+        return self.obs
     
     def is_done(self):
         done_th = 4 if self.scene_type == 'house' else 1.5
@@ -158,9 +172,10 @@ class Collect(BasicTasks):
                     return False
         return True
 
-    def _parse_obs(self):
+    def _parse_obs(self, action_done = None):
+        if action_done is None:
+            action_done = [True] * self.num_agents
         agent_pos = [a.dynamic.transform.position for a in self.agents]
-        act_done = [a.action.status == ActionStatus.success for a in self.agents]
         obj_graph = [self._get_partial_objects(a) for a in range(self.num_agents)]
         action_space = self._get_action_space(obj_graph)
 
@@ -169,7 +184,7 @@ class Collect(BasicTasks):
             'agent_pos': agent_pos,
             'goal_id': self.goal_position[0]['id'],
             'target_objects': list(self.target_obj_id.keys()),
-            'action_done': act_done,
+            'action_done': action_done,
             'action_space': action_space,
             'object_graph': obj_graph,
             'room_map': self.room_map,
@@ -220,13 +235,17 @@ class Collect(BasicTasks):
         return action_space
 
     def step(self, actions):
+        ic(actions)
         self.steps += 1
+        action_done = [None for _ in range(self.num_agents)]
+        if self.log is not None:
+            self.log['trajectory'][self.steps-1]['actions'] = actions
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
         def execute(actions, agent_id):
             for a_id in range(self.num_agents):
                 if self.steps > 1:
-                    self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/agent_'+str(a_id))
+                    self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/'+str(self.random_seed)+'/agent_'+str(a_id))
             """ tem_pos = self.agents[agent_id].dynamic.transform.position
             fw = self.agents[agent_id].dynamic.transform.forward
             tem_pos = [tem_pos[0], tem_pos[1], tem_pos[2], fw[0], fw[1], fw[2]]
@@ -240,23 +259,30 @@ class Collect(BasicTasks):
                 }
                 #self.agents[agent_id].bridge.dep2map(obs)
                 self.agents[agent_id].bridge.store_map(obs, self.occupancy_map, self._scene_bounds) """
-
+            
+            if self.lock_step > 0 and agent_id == 0:
+                self.lock_step -= 1
+                if self.lock_step < 5:
+                    ic('lock')
+                    return
+            
+            actions[agent_id] = self.process_actions(actions, agent_id, self.obs['action_space'])
             if actions[agent_id] is None:
                 return
             if actions[agent_id][0] == 0:
                 if actions[agent_id][1] is None:
                     self.agents[agent_id].move_towards([0,0,-3])
                 else:
-                    pos = self.agents[1-agent_id].dynamic.transform.position
                     obj_pos = self._get_obj_pos(actions[agent_id][1])
-                    if not(actions[agent_id][1] in list(self.target_obj_id.keys())):
-                        obj_pos = self.goal_position[0]['pos']
-                    grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
+                    agent_pos = self.agents[1-agent_id].dynamic.transform.position
+                    grid = pos_to_grid(agent_pos[0], agent_pos[2], self._scene_bounds)
                     self.agents[agent_id].move_towards(obj_pos, grid)
             elif actions[agent_id][0] == 1:
                 self.agents[agent_id].pick_up(actions[agent_id][1])
+                #self.agents[agent_id].move_to(actions[agent_id][1])
             elif actions[agent_id][0] == 2:
                 self.agents[agent_id].drop(actions[agent_id][1])
+
 
         self.controller.communicate([])
         for agent_id in range(self.num_agents):
@@ -266,11 +292,31 @@ class Collect(BasicTasks):
             self.controller.communicate([])
         
         for agent_id in range(self.num_agents):
+            if actions[agent_id][0] == 1:
+                if actions[agent_id][1] in self.agents[agent_id].dynamic.held[Arm.left]\
+                    or actions[agent_id][1] in self.agents[agent_id].dynamic.held[Arm.right]:
+                    action_done[agent_id] = True
+                else:
+                    action_done[agent_id] = False
+            if actions[agent_id][0] == 2:
+                if actions[agent_id][1] in self.agents[agent_id].dynamic.held[Arm.left]\
+                    or actions[agent_id][1] in self.agents[agent_id].dynamic.held[Arm.right]:
+                    action_done[agent_id] = False
+                else:
+                    action_done[agent_id] = True
+
+        for agent_id in range(self.num_agents):
             if self.agents[agent_id].action.status == ActionStatus.tipping:
-                self.agents[agent_id].move_by(-0.5)
+                if self.tip_flag:
+                    self.agents[agent_id].move_by(-2)
+                else:
+                    self.agents[agent_id].move_by(2)
+                self.tip_flag = not(self.tip_flag)
                 ic('tipping')
             elif self.agents[agent_id].action.status == ActionStatus.collision:
                 self.collision_process(agent_id)
+            else:
+                self.collision_count = [None, None]
             
         while any_ongoing(self.agents):
             self.controller.communicate([])
@@ -283,7 +329,12 @@ class Collect(BasicTasks):
                     while any_ongoing(self.agents):
                         self.controller.communicate([])
         
-        return self._parse_obs()
+        self.obs = self._parse_obs(action_done)
+        if self.log is not None:
+            self.log['trajectory'][self.steps] = {
+                'obs':self.obs
+            }
+        return self.obs
 
     def _to_close(self):
         pos = self.agents[0].dynamic.transform.position
@@ -294,8 +345,18 @@ class Collect(BasicTasks):
         else:return False
 
     def collision_process(self, agent_id):
-        ic('collision')
-        self.agents[agent_id].move_by(-0.3)
+        if self._to_close():
+            if agent_id == 0:
+                ic('collision')
+                self.agents[agent_id].move_by(-1.5)
+                self.lock_step = 5
+            return
+        if self.collision_count[agent_id] is not None:
+            self.agents[agent_id].move_by(0.5)
+            self.collision_count[agent_id] = None
+            return
+        self.agents[agent_id].move_by(-0.5)
+        self.collision_count[agent_id] = 0
         return
 
         if self._to_close():
@@ -406,7 +467,14 @@ class Collect(BasicTasks):
                 return False
 
     def _get_obj_pos(self, obj_id):
-        return self.om.transforms[obj_id].position
+        if obj_id in list(self.target_obj_id.keys()):
+            pos = self.om.transforms[obj_id].position
+        elif obj_id == self.goal_position[0]['id']:
+            pos = self.goal_position[0]['pos']
+        else:
+            pos = self.room_center[obj_id]
+
+        return pos
 
     def _get_visiable_objects(self):
         ans = [[] for _ in range(self.num_agents)]
@@ -420,6 +488,22 @@ class Collect(BasicTasks):
                         ans[agent_id].append(o)
             except:pass
         return ans
+    
+    def process_actions(self, actions, agent_id, action_space):
+        if actions[agent_id][0] == 2:
+            return actions[agent_id]
+        if actions[agent_id][1] is None:
+            return actions[agent_id]
+        else:
+            if not(actions[agent_id][1] in action_space[agent_id].keys()):
+                return None
+            object_id = actions[agent_id][1]
+            available_actions = action_space[agent_id][object_id]
+            if actions[agent_id][0] in available_actions:
+                return actions[agent_id]
+            else:
+                return None
+
 
 
 if __name__ == '__main__':

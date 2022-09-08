@@ -15,7 +15,7 @@ class Agent:
         self.nav_id = [None, None]
 
     def _arrived(self, trans, obj_id, agent_pos, transport=False):
-        th = 3 if transport else 1
+        th = 2.5 if transport else 0.5
         pos = trans[obj_id].position
         dist = l2_dis(pos[0], agent_pos[0], pos[2], agent_pos[2])
         if dist < th:

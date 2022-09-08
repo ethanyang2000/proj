@@ -18,6 +18,7 @@ import os
 from icecream import ic
 from bot import Bot
 from constant import available_actions
+from constant import scene_const
 from utils import grid_to_pos
 
 MAGNEBOT_RADIUS: float = 0.22
@@ -64,7 +65,7 @@ class BasicTasks():
                                 look_at={"x": 0, "y": 0, "z": 0},
                                 avatar_id="bird_view")
         
-        self.capture_path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath('demo_epi_0')
+        self.capture_path = EXAMPLE_CONTROLLER_OUTPUT_PATH.joinpath(str(random_seed)+'/demo_epi_0')
         self.capture = ImageCapture(avatar_ids=['bird_view'], path=self.capture_path)
         self.controller.add_ons.extend([self.scene_instance, self.camera, self.capture, self.om, self._step_physics, self.map_manager])
         self.controller.communicate([{"$type": "set_screen_size",
@@ -83,7 +84,7 @@ class BasicTasks():
         for i in range(self.num_agents):
             if first:
                 bot = Bot(position=init_pos[i],
-                            robot_id=self.controller.get_unique_id(), bound=self._scene_bounds, map=self.occupancy_map)
+                            robot_id=self.controller.get_unique_id(), bound=self._scene_bounds, map=self.occupancy_map, rng=self._rng)
                 self.agents.append(bot)
                 self.controller.add_ons.append(bot)
             else:
@@ -103,18 +104,42 @@ class BasicTasks():
 
         elif self.scene_type == 'house':
             self.occupancy_map = np.load(str(OCCUPANCY_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}_{self.layout}.npy").resolve()))
+            
+            self.occupancy_map[15:20,18:20] = 0
+            self.occupancy_map[11,-2] = -1
+            self.occupancy_map[23,-8] = -1
+            self.occupancy_map[31,-10] = -1
+            self.occupancy_map[35,12] = -1
+            self.occupancy_map[34,13] = -1
+            
             self._init_floorplan(self.scene, self.layout, first)
             self.room_map = np.load(str(ROOM_MAPS_DIRECTORY.joinpath(f"{self.scene[0]}.npy").resolve()))
             self.room_map[self.occupancy_map==-1] = -1
-            
-        resp = self.controller.communicate([{"$type": "set_floorplan_roof",
+        
+        del_ids = []
+        for o in self.om.objects_static:
+            if self.om.objects_static[o].category == 'coffee table, cocktail table':
+                del_ids.append(o)
+        command = [{"$type": "destroy_object",
+                        "id": oid} for oid in del_ids]
+        command.extend([{"$type": "set_floorplan_roof",
                     "show": False},{"$type": "send_scene_regions"}])
+        resp = self.controller.communicate(command)
         self._scene_bounds = SceneBounds(resp)
         
         if self.scene_type == 'house':
-            room_num = np.max(self.room_map)
+            self.room_center = scene_const().room_center[self.scene]
+            for key, value in self.room_center.items():
+                self.room_center[key] = grid_to_pos(value[0], value[1], self._scene_bounds)
+            """ room_num = np.max(self.room_map)
             self.room_center = {}
-            for i in range(0,room_num+1):
+            for ix, iy in np.ndindex(self.room_map.shape):
+                if self.occupancy_map[ix, iy] == 0:
+                    room_id = self.room_map[ix, iy]
+                    if not(room_id) in self.room_center.keys():
+                        pos = grid_to_pos(ix, iy, self._scene_bounds)
+                        self.room_center[room_id] = pos """
+            """ for i in range(0,room_num+1):
                 bounds = np.where(self.room_map==i)[0]
                 xx = bounds[0]
                 yy = bounds[1]
@@ -124,7 +149,7 @@ class BasicTasks():
                 yy_max = np.max(yy)
                 x = round((xx_max+xx_min)/2)
                 y = round((yy_max+yy_min)/2)
-                self.room_center[i] = grid_to_pos(x,y,self._scene_bounds)
+                self.room_center[i] = grid_to_pos(x,y,self._scene_bounds) """
             
     def _init_target_objects(self):
         pass

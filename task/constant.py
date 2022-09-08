@@ -14,6 +14,19 @@ class constants:
                         [0, 1]]  # go right
 
 
+class scene_const:
+    def __init__(self) -> None:
+        self.room_center = {
+            '1b':{
+                0: [32,15],
+                1:[35,7],
+                2:[10,19],
+                3:[21,17],
+                4:[50,10],
+                5:[42,8]
+            }
+        }
+
 class available_actions:
     def __init__(self) -> None:
         self.data = {'camera': [0, 1, 2, 3],

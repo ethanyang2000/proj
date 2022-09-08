@@ -192,13 +192,14 @@ class Node():
  
 class rrtPlanner():
  
-    def __init__(self, map, bound, step_length=0.6):
+    def __init__(self, map, bound, step_length=0.6, rng=None):
         self.step_length = step_length
         self.bound = bound
         self.sample_rate = 0.05
         self.max_iter = 10000
         self.map = map
         self.nodes = list()
+        self.rng = rng
  
     def set_points(self, start, goal):
         self.start = Node(start)
@@ -206,8 +207,8 @@ class rrtPlanner():
         self.nodes.append(self.start)
 
     def get_random_node(self):
-        node_x = random.uniform(self.bound.x_min, self.bound.x_max)
-        node_y = random.uniform(self.bound.z_min, self.bound.z_max)
+        node_x = self.rng.uniform(self.bound.x_min, self.bound.x_max)
+        node_y = self.rng.uniform(self.bound.z_min, self.bound.z_max)
         node = [node_x, node_y]
  
         return node
@@ -229,9 +230,9 @@ class rrtPlanner():
             ans += 1
         return ans > 0
  
-    def _draw(self, nodes):
+    def _draw(self):
         plt.clf()  # 清除上次画的图
-        for node in nodes:
+        for node in self.nodes:
             if node.parent is not None:
                 plt.plot([node.x, self.nodes[node.parent].x], [
                          node.y, self.nodes[node.parent].y], "-g")
@@ -248,7 +249,7 @@ class rrtPlanner():
         while iters < self.max_iter:
             iters += 1
             # Random Sampling
-            if random.random() > self.sample_rate:
+            if self.rng.random() > self.sample_rate:
                 rnd = self.get_random_node()
             else:
                 rnd = [self.goal.x, self.goal.y]
@@ -296,9 +297,8 @@ class rrtPlanner():
             if not(i in del_list):
                 new_path.append(path[i])
                 new_path_nodes.append(path_nodes[i])
-        self._draw(new_path_nodes)
-        ic(iters)
-        return new_path
+
+        return new_path, iters<self.max_iter
 
     def merge_nodes(self, node1, node2, node3):
         del_flag = True
