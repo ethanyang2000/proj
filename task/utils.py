@@ -1,5 +1,4 @@
 from copy import deepcopy
-from distutils.dist import Distribution
 from tdw.quaternion_utils import QuaternionUtils
 from icecream import ic
 import numpy as np
@@ -166,6 +165,10 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos, 
     return new_dis[0], new_counts[0]
 
 
+def reset_resolution(value):
+    global OCCUPANCY_CELL_SIZE
+    OCCUPANCY_CELL_SIZE = value
+
 def pos_to_grid(x,z, bound):
     #ic(x,z)
     i = (x - bound.x_min) / (OCCUPANCY_CELL_SIZE)
@@ -182,6 +185,12 @@ def eular_to_quat(eular):
     ma = R.from_euler('xyz', eular, degrees=True)
     return ma.as_quat()
 
+def convert(grid, bound):
+    x = bound.x_min + ((grid[0]) * OCCUPANCY_CELL_SIZE)
+    z = bound.z_min + ((grid[1]) * OCCUPANCY_CELL_SIZE)
+    i = (x - bound.x_min) / (0.49)
+    j = (z - bound.z_min) / (0.49)
+    return [int(round(i)), int(round(j))]
 
 class Node():
     def __init__(self, pos):
@@ -222,13 +231,15 @@ class rrtPlanner():
         pos = [new_node.x, new_node.y]
         grid = pos_to_grid(pos[0], pos[1], self.bound)
         ans = 0
-        try: 
-            ans += not(self.map[grid[0], grid[1]] == 0)
-        except: ans = 1
+        for i in range(grid[0]-1, grid[0]+2):
+            for j in range(grid[1]-1, grid[1]+2):
+                try: 
+                    ans += not(self.map[i, j] == 0)
+                except: ans += 1
         dis = [(node.x - new_node.x) ** 2 + (node.y - new_node.y) ** 2 for node in self.nodes]
         if min(dis) < 0.5**2:
             ans += 1
-        return ans > 0
+        return ans > 2
  
     def _draw(self):
         plt.clf()  # 清除上次画的图

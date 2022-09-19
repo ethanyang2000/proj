@@ -10,10 +10,11 @@ from tdw.tdw_utils import TDWUtils
 from tdw.output_data import OutputData, SegmentationColors, ObiParticles
 from collections import Counter
 from magnebot import ActionStatus, Arm
-from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos
+from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos, reset_resolution, convert
 from constant import constants
 from PIL import Image
 from tdw.librarian import ModelLibrarian
+
 
 class Collect(BasicTasks):
     NUM_TARGET_OBJECTS = 4
@@ -135,12 +136,21 @@ class Collect(BasicTasks):
 
                 commands.append(comm)
         self.controller.communicate(commands)
-        if self.scene_type == 'kitchen':
+        if True: #self.scene_type == 'kitchen':
             self.map_manager.generate()
             self.controller.communicate([])
             self.occupancy_map = self.map_manager.occupancy_map
             self.map_manager.show()
             self._scene_bounds = self.map_manager.scene_bounds
+            reset_resolution(0.25)
+            self.occupancy_map[18:20,-21:-3] = 1
+            self.occupancy_map[42:44,-18:-7] = 1
+            self.occupancy_map[52:63,-21:-19] = 1
+            self.occupancy_map[62:64,7:13] = 1
+            self.occupancy_map[55:64,11:15] = 1
+            self.occupancy_map[71:73,0:20] = 1
+            self.occupancy_map[91:93,0:19] = 1
+            np.savetxt('gt.txt', self.occupancy_map, fmt='%d')
         print('target objects loaded')
 
     def reset(self, first=False):
@@ -190,19 +200,21 @@ class Collect(BasicTasks):
             'room_map': self.room_map,
             'bound': self._scene_bounds
         }
+        ic(obj_graph)
         return obs
 
     def _get_partial_objects(self, agent_id):
         obs = []
         pos = self.agents[agent_id].dynamic.transform.position
         grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
-        room_id = self.room_map[grid[0], grid[1]]
+        temp_grid = convert(grid,self._scene_bounds)
+        room_id = self.room_map[temp_grid[0], temp_grid[1]]
                 
         for obj_id in self.om.transforms:
             trans = self.om.transforms[obj_id]
             pos = trans.position
             grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
-            obj_room = self.room_map[grid[0], grid[1]]
+            obj_room = self.room_map[temp_grid[0], temp_grid[1]]
             if obj_room == room_id:
                 try: name = self.om.objects_static[obj_id].name
                 except: name = self.target_obj_id[obj_id]

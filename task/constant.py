@@ -12,6 +12,21 @@ class constants:
                         [0, -1],  # go left
                         [1, 0],  # go down
                         [0, 1]]  # go right
+        self.actions = [
+            'navigate_to',
+            'pick_up',
+            'put',
+            'put_in',
+            'lift_up',
+            'put_down',
+            'navigate_with_object',
+            'open',
+            'close',
+            'wash',
+            'chop',
+            'cook',
+            'open_doors'
+        ]
 
 
 class scene_const:

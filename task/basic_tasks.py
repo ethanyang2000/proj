@@ -56,7 +56,7 @@ class BasicTasks():
             self.scene_instance.init_scene(scene, layout)
         
         self.om = ObjectManager()
-        self.map_manager = OccupancyMap(cell_size=0.49)
+        self.map_manager = OccupancyMap(cell_size=0.25)
         self._step_physics: StepPhysics = StepPhysics(10)
         
         camera_height = 20 if scene_type == 'kitchen' else 40

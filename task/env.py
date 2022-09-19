@@ -2,11 +2,12 @@ from collect import Collect
 from agent import Agent
 from icecream import ic
 import pickle
+import gym
+
 SEED = 7
 
-class TaskEnv():
-    
-    def __init__(self, tasktype, port=None, launch_build=True, num_agents=2, scene_type='kitchen', scene='1b', layout=0, random_seed=SEED, log=False) -> None:
+class TaskEnv(gym.Env):
+    def __init__(self, args, port=None, launch_build=True, num_agents=2, scene_type='kitchen', scene='1b', layout=0, random_seed=SEED, log=False) -> None:
         self.steps = 0
         self.log = dict() if log else None
         if log:
@@ -32,6 +33,26 @@ class TaskEnv():
         obs = self.task.step(actions)
         done = self.task.is_done()
         return obs, done, None, None
+    
+    def render(self, mode='human'):
+        pass
+
+    def close(self):
+        self.env.close()
+
+    def seed(self, seed=None):
+        if seed is None:
+            self.env.seed(1)
+        else:
+            self.env.seed(seed)
+
+    def _make_action_space(self):
+        self.action_space = gym.spaces.Discrete(
+
+        )
+
+    def _make_observation_space(self):
+        pass
     
 if __name__ == '__main__':
     env =TaskEnv('collect', scene_type='house',log=True)
