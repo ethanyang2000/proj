@@ -4,10 +4,9 @@ from icecream import ic
 import pickle
 import gym
 
-SEED = 7
-
 class TaskEnv(gym.Env):
-    def __init__(self, args, port=None, launch_build=True, num_agents=2, scene_type='kitchen', scene='1b', layout=0, random_seed=SEED, log=False) -> None:
+    def __init__(self, args):
+        self.args = args
         self.steps = 0
         self.log = dict() if log else None
         if log:

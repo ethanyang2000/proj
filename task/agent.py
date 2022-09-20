@@ -1,11 +1,10 @@
-from re import A
 from icecream import ic
 from utils import pos_to_grid
 from utils import l2_dis
 import numpy as np
 import sys
 
-class Agent:
+class PlanningAgent:
     def __init__(self, num_agents) -> None:
         self.mode = [None for _ in range(num_agents)]
         self.num_agents = num_agents
