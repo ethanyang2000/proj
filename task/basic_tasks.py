@@ -35,6 +35,7 @@ class BasicTasks():
         self.layout = args.layout
         self.scene_type = args.scene_type
         self.constants = constants(args.task_type)
+        self.agents = list()
 
         self.actions = available_actions()
         self._rng = np.random.RandomState(args.seed)
@@ -84,6 +85,21 @@ class BasicTasks():
 
         if init: self.init_scene_map()
 
+        if self.scene_type == 'house':
+            self.map_manager.generate()
+            self.controller.communicate([])
+            self.nav_occupancy_map = self.map_manager.occupancy_map
+
+            self.nav_scene_bounds = self.map_manager.scene_bounds
+
+            self.nav_occupancy_map[18:20,-21:-3] = 1
+            self.nav_occupancy_map[42:44,-18:-7] = 1
+            self.nav_occupancy_map[52:63,-21:-19] = 1
+            self.nav_occupancy_map[62:64,7:13] = 1
+            self.nav_occupancy_map[55:64,11:15] = 1
+            self.nav_occupancy_map[71:73,0:20] = 1
+            self.nav_occupancy_map[91:93,0:19] = 1
+
 
 
     def _init_robot_pos(self):
@@ -93,20 +109,21 @@ class BasicTasks():
         self.controller.communicate([])
         self.controller.communicate({"$type": "terminate"})
     
-    def _init_robots(self, first):
+    def _init_robots(self):
+        self.agents.clear()
         init_pos = self._init_robot_pos()
         for i in range(self.num_agents):
-            if first:
-                bot = Bot(position=init_pos[i],
-                            robot_id=self.controller.get_unique_id(), bound=self._scene_bounds, map=self.occupancy_map, rng=self._rng)
-                self.agents.append(bot)
-                self.controller.add_ons.append(bot)
-            else:
-                self.agents[i].reset(init_pos[i])
+            bot = Bot(position=init_pos[i],
+                        robot_id=self.controller.get_unique_id(), bound=self.nav_scene_bounds,\
+                         map=self.nav_occupancy_map, rng=self._rng)
+            self.agents.append(bot)
+            self.controller.add_ons.append(bot)
             self.controller.communicate([])
             self.agents[i].collision_detection.exclude_objects.extend(list(self.target_obj_id.keys()))
+        
         '''self.controller.communicate([{"$type": "set_field_of_view",
                          "field_of_view": 90}])'''
+        
         print('robots loaded')
 
     def init_scene_map(self):

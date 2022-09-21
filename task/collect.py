@@ -32,21 +32,18 @@ class Collect(BasicTasks):
         self.obs = None
     
     def _init_goal(self):
-        self.goal_position.clear()
-
         target_list = dict()
-        """ for obj_id, trans in self.om.transforms.items():
-            if not(obj_id in self.target_obj_id.keys()):
-                target_list[obj_id] = trans.position """
+
         for o in self.om.objects_static:
             if self.om.objects_static[o].category == 'sofa':
                 target_list[o] = self.om.transforms[o].position
+        
         target_idx = (self._rng.choice(range(len(target_list))))
-        flag = False
+        
+        """ flag = False
+        
         goal_id = list(target_list.keys())[target_idx]
-        """ for o in self.om.objects_static:
-            if 'table' in self.om.objects_static[o].name:
-                goal_id = o """
+
         goal_pos = target_list[list(target_list.keys())[target_idx]]
         goal_pos = self.om.transforms[goal_id].position
         goal_grid = pos_to_grid(goal_pos[0], goal_pos[2], self._scene_bounds)
@@ -58,7 +55,11 @@ class Collect(BasicTasks):
                     break
             if flag:break
 
-        goal_pos = grid_to_pos(goal_grid[0], goal_grid[1], self._scene_bounds)
+        goal_pos = grid_to_pos(goal_grid[0], goal_grid[1], self._scene_bounds) """
+        
+        goal_id = list(target_list.keys())[target_idx]
+        goal_pos = self.om.transforms[goal_id].position
+
         self.goal_position.append({
             'id': goal_id,
             'pos':goal_pos
@@ -75,8 +76,7 @@ class Collect(BasicTasks):
         pass
 
     def _init_target_objects(self):
-        self.agent_init_pos.clear()
-        self.target_obj_id.clear()
+        
         lib = ModelLibrarian(library='models_core.json')
         
         commands = list()
@@ -99,7 +99,7 @@ class Collect(BasicTasks):
         used_target_object_positions = list()
 
         # Add target objects to the room.
-        for i in range(Collect.NUM_TARGET_OBJECTS + 2):
+        for i in range(Collect.NUM_TARGET_OBJECTS + self.num_agents):
             got_position = False
             ix, iy = -1, -1
             # Get a position where there isn't a target object.
@@ -128,26 +128,14 @@ class Collect(BasicTasks):
                                         position={"x": x, "y": 0, "z": z}, object_id=obj_id)
 
                 commands.append(comm)
+        
         self.controller.communicate(commands)
-        if True: #self.scene_type == 'kitchen':
-            self.map_manager.generate()
-            self.controller.communicate([])
-            self.occupancy_map = self.map_manager.occupancy_map
-            self.map_manager.show()
-            self._scene_bounds = self.map_manager.scene_bounds
-            reset_resolution(0.25)
-            self.occupancy_map[18:20,-21:-3] = 1
-            self.occupancy_map[42:44,-18:-7] = 1
-            self.occupancy_map[52:63,-21:-19] = 1
-            self.occupancy_map[62:64,7:13] = 1
-            self.occupancy_map[55:64,11:15] = 1
-            self.occupancy_map[71:73,0:20] = 1
-            self.occupancy_map[91:93,0:19] = 1
-            np.savetxt('gt.txt', self.occupancy_map, fmt='%d')
+
         print('target objects loaded')
 
     def reset(self, init=False):
         super().reset_scene(init)
+        self.reset_data()
         self._init_goal()
         self._init_target_objects()
         self._init_robots()
@@ -155,6 +143,11 @@ class Collect(BasicTasks):
         self.obs, info = self._parse_obs()
         return self.obs, info
     
+    def reset_data(self):
+        self.goal_position.clear()
+        self.agent_init_pos.clear()
+        self.target_obj_id.clear()
+
     def is_done(self):
         done_th = 4 if self.scene_type == 'house' else 1.5
         goal_pos = self.goal_position[0]['pos']
