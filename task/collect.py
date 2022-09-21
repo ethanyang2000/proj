@@ -17,18 +17,12 @@ from tdw.librarian import ModelLibrarian
 
 
 class Collect(BasicTasks):
-    NUM_TARGET_OBJECTS = 4
-
-    def __init__(self, port, launch_build, num_agents, scene_type, scene, layout, local_dir='E:/tdw_lib/', random_seed=2, debug=True, log=None) -> None:
-        super().__init__(port, launch_build, num_agents, scene_type, scene, layout, local_dir, random_seed = random_seed, debug=debug)
+    def __init__(self, args) -> None:
+        super().__init__(args)
         
-        self.constants = constants('collect')
         self.agent_init_pos = list()
         self.target_obj_id = dict()
         self.target_obj_cate = dict()
-        self.log = log
-        if self.log is not None:
-            self.log['trajectory'] = dict()
         
         self.goal_position = list()
         self.collision_count = [None for _ in range(self.num_agents)]
@@ -36,7 +30,6 @@ class Collect(BasicTasks):
         self.tip_flag = True
         self.lock_step = 0
         self.obs = None
-        self.random_seed = random_seed
     
     def _init_goal(self):
         self.goal_position.clear()
@@ -153,20 +146,14 @@ class Collect(BasicTasks):
             np.savetxt('gt.txt', self.occupancy_map, fmt='%d')
         print('target objects loaded')
 
-    def reset(self, first=False):
-        super().init_scene(first)
+    def reset(self, init=False):
+        super().reset_scene(init)
         self._init_goal()
         self._init_target_objects()
-        self._init_robots(first)
-        if not first:
-            self._reset_addons()
+        self._init_robots()
         
-        self.obs = self._parse_obs()
-        if self.log is not None:
-            self.log['trajectory'][self.steps] = {
-                'obs':self.obs
-            }
-        return self.obs
+        self.obs, info = self._parse_obs()
+        return self.obs, info
     
     def is_done(self):
         done_th = 4 if self.scene_type == 'house' else 1.5

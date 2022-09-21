@@ -12,6 +12,6 @@ layout is ${layout}, exp is ${exp}, seed is ${seed}"
 
 CUDA_VISIBLE_DEVICES=0 python run_env.py --num_agents ${num_agents} --task_type ${task_type}\
 --scene_type ${scene_type} --scene ${scene} --layout ${layout} --seed ${seed} --episodes 10 --max_steps 100
---log --wandb_name 'ethanyang' --user_name 'yyx' --exp_name ${exp}
+--log --wandb_name 'ethanyang' --user_name 'yyx' --exp_name ${exp} --num_objects 4 --local_dir 'E:/tdw_lib/'
 
 echo "training is done!"

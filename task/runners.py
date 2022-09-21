@@ -7,24 +7,31 @@ class SampleRunner:
         self.args = config['all_args']
         self.num_agents = config['num_agents']
         self.run_dir = config['run_dir']
+        self.logs = []
 
         self.agent = PlanningAgent(2)
 
     
     def warmup(self):
-        obs, done, _, _ = self.env.reset()
-        return obs, done, _, _
+        obs, done, reward, info = self.env.reset()
+        if self.args.log:
+            self.logs.append(info['log'])
+        return obs, done, reward, info
 
     def run(self):
-        obs, done, _, _ = self.warmup()
+        self.env_step = 0
+        obs, done, reward, info = self.warmup()
 
         for epi in range(self.args.episodes):
-            for step in range(self.args.max_steps):
+            for _ in range(self.args.max_steps):
                 actions = self.agent.act(obs)
-                obs, done, _, _ = self.env.step(actions)
-                if done:
-                    obs, done,_,_ = self.env.reset()
-                    self.save_trajectory()
+                obs, done, reward, info = self.env.step(actions)
+                if self.args.log: self.logs.append(info['log'])
+                self.env_step += 1
+                if done or self.env_step == self.args.max_steps - 1:
+                    self.env_step = 0
+                    obs, done, reward, info = self.env.reset()
+                    if self.args.log: self.logs.append(info['log'])
                     break
     
     def save_trajectory(self):

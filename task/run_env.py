@@ -26,7 +26,8 @@ def parse_args(args):
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--episodes', default=1, type=int)
     parser.add_argument('--max_steps', default=100, type=int)
-
+    parser.add_argument('--num_objects', default=4, type=int)
+    parser.add_argument('--local_dir', default=None, type=str)
 
     parser.add_argument('--log', default=False, action='store_true')
     parser.add_argument('--use_wandb', default=True, action='store_false')

@@ -5,13 +5,12 @@ class constants:
                 'vase_02',
                 'jug04',
                 'jug05',
-            
             ]
 
-            self.delta = [[-1, 0],  # go up
-                        [0, -1],  # go left
-                        [1, 0],  # go down
-                        [0, 1]]  # go right
+        self.delta = [[-1, 0],  # go up
+                    [0, -1],  # go left
+                    [1, 0],  # go down
+                    [0, 1]]  # go right
         self.actions = [
             'navigate_to',
             'pick_up',
@@ -27,6 +26,9 @@ class constants:
             'cook',
             'open_doors'
         ]
+        self.magnebot_radius: float = 0.22
+        self.cell_size: float = (self.magnebot_radius * 2) + 0.05
+
 
 
 class scene_const:

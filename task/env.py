@@ -8,42 +8,45 @@ class TaskEnv(gym.Env):
     def __init__(self, args):
         self.args = args
         self.steps = 0
-        self.log = dict() if log else None
-        if log:
-            self.log['task_type'] = tasktype
+        
+        
+        """     self.log['task_type'] = tasktype
             self.log['num_agents'] = 2
             self.log['scene_type'] = 'kitchen'
             self.log['scene'] = scene
             self.log['layout'] = layout
-            self.log['random_seed'] = random_seed
-        if tasktype == 'collect':
-            self.task = Collect(port=port, launch_build=launch_build, num_agents=num_agents, scene=scene,\
-            layout=layout, random_seed=random_seed, scene_type=scene_type, log = self.log)
+            self.log['random_seed'] = random_seed """
+
+        if args.tasktype == 'collect':
+            self.task = Collect(args)
         else:
             raise NotImplementedError
 
+    def log_info(self):
+        pass
+
     def reset(self):
-        obs = self.task.reset(True)
+        obs, info = self.task.reset(True)
         self.steps = 0
-        return obs, False, None, None
+        return obs, False, None, info
     
     def step(self, actions):
         self.steps += 1
-        obs = self.task.step(actions)
+        obs, info = self.task.step(actions)
         done = self.task.is_done()
-        return obs, done, None, None
+        return obs, done, None, info
     
     def render(self, mode='human'):
         pass
 
     def close(self):
-        self.env.close()
+        self.task.close()
 
     def seed(self, seed=None):
         if seed is None:
-            self.env.seed(1)
+            self.task.seed(1)
         else:
-            self.env.seed(seed)
+            self.task.seed(seed)
 
     def _make_action_space(self):
         self.action_space = gym.spaces.Discrete(
