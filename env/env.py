@@ -1,5 +1,4 @@
-from collect import Collect
-from agent import Agent
+from task.collect import Collect
 from icecream import ic
 import pickle
 import gym
@@ -17,7 +16,7 @@ class TaskEnv(gym.Env):
             self.log['layout'] = layout
             self.log['random_seed'] = random_seed """
 
-        if args.tasktype == 'collect':
+        if args.task_type == 'collect':
             self.task = Collect(args)
         else:
             raise NotImplementedError

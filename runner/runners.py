@@ -1,4 +1,4 @@
-from agent import PlanningAgent
+from agent.agent import PlanningAgent
 import pickle
 
 class SampleRunner:

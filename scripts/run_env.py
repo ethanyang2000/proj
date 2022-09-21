@@ -1,4 +1,4 @@
-from env import TaskEnv
+from env.env import TaskEnv
 import sys
 import os
 import wandb
@@ -96,7 +96,7 @@ def main(args):
 
     # run experiments
     if all_args.exp_type == 'sample':
-        from runners import SampleRunner as Runner
+        from runner.runners import SampleRunner as Runner
 
     runner = Runner(config)
     runner.run()

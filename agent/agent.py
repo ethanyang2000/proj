@@ -1,6 +1,6 @@
 from icecream import ic
-from utils import pos_to_grid
-from utils import l2_dis
+from utils.utils import pos_to_grid
+from utils.utils import l2_dis
 import numpy as np
 import sys
 
@@ -227,5 +227,17 @@ class PlanningAgent:
         grid = pos_to_grid(pos[0], pos[2], bound)
         room_id = room_map[grid[0], grid[1]]
         return room_id
+    
+    def pos_to_grid(self, x,z):
+
+        i = (x - self.bound.x_min) / (self.cell_size)
+        j = (z - self.bound.z_min) / (self.cell_size)
+
+        return [int(round(i)), int(round(j))]
+    
+    def grid_to_pos(self, i: int, j: int):
+        x = self.bound.x_min + ((i) * self.cell_size)
+        z = self.bound.z_min + ((j) * self.cell_size)
+        return np.array([x, 0, z])
 
         

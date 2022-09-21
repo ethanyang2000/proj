@@ -1,12 +1,5 @@
 from copy import deepcopy
-from itertools import count
-from os import environ
-from json import loads
-from csv import DictReader
-from typing import List, Dict, Tuple, Optional, Union
 import numpy as np
-from scipy.signal import convolve2d
-from tdw.librarian import ModelLibrarian
 from tdw.tdw_utils import TDWUtils
 from tdw.controller import Controller
 from magnebot import Magnebot, Arm, ActionStatus, ArmJoint
@@ -16,11 +9,9 @@ from tdw.add_ons.third_person_camera import ThirdPersonCamera
 from magnebot import Magnebot, ActionStatus
 from tdw.tdw_utils import TDWUtils
 from icecream import ic
-from utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos, rrtPlanner
+from utils.utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos, rrtPlanner
 from tdw.output_data import OutputData, NavMeshPath
 import math
-from bridge import bridge
-
 
 FORWARD_DIS = 1.5
 ARRIVE_AT = 0.2

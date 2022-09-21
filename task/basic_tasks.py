@@ -16,9 +16,9 @@ import numpy as np
 from pathlib import Path
 import os
 from icecream import ic
-from bot import Bot
-from constant import available_actions, constants, scene_const
-from utils import grid_to_pos
+from agent.bot import Bot
+from utils.constant import available_actions, constants, scene_const
+from utils.utils import grid_to_pos
 
 class BasicTasks():
     def __init__(self, args) -> None:
@@ -46,10 +46,7 @@ class BasicTasks():
             #self.scene_instance.create(scene='mm_kitchen_2b')
         elif self.scene_type == 'house':
             self.scene_instance = Floorplan()
-            #self.scene_instance.init_scene(self.scene, self.layout)
-
-        self.reset_scene(True)
-
+            #self.scene_instance.init_scene(self.scene, self.layout)s
 
     def reset_scene(self, init):
 
@@ -105,10 +102,13 @@ class BasicTasks():
     def _init_robot_pos(self):
         pass
 
-    def terminate(self):
+    def close(self):
         self.controller.communicate([])
         self.controller.communicate({"$type": "terminate"})
     
+    def seed(self,seed):
+        self._rng = np.random.RandomState(seed)
+
     def _init_robots(self):
         self.agents.clear()
         init_pos = self._init_robot_pos()
@@ -151,7 +151,7 @@ class BasicTasks():
         if self.scene_type == 'house':
             self.room_center = scene_const().room_center[self.scene]
             for key, value in self.room_center.items():
-                self.room_center[key] = grid_to_pos(value[0], value[1], self._scene_bounds)
+                self.room_center[key] = self.get_occupancy_position(value[0], value[1])
             
     def _init_target_objects(self):
         pass
@@ -159,4 +159,7 @@ class BasicTasks():
     def get_occupancy_position(self, i: int, j: int):
         x = self._scene_bounds.x_min + (i * self.constants.cell_size)
         z = self._scene_bounds.z_min + (j * self.constants.cell_size)
-        return x, z
+        return [x,0,z]
+    
+    def get_occupancy_grid(self, x, z):
+        x = 

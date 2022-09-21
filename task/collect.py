@@ -1,5 +1,5 @@
 from copy import deepcopy
-from basic_tasks import BasicTasks
+from task.basic_tasks import BasicTasks
 from tdw.add_ons.floorplan import Floorplan
 from tdw.add_ons.proc_gen_kitchen import ProcGenKitchen
 import numpy as np
@@ -10,8 +10,8 @@ from tdw.tdw_utils import TDWUtils
 from tdw.output_data import OutputData, SegmentationColors, ObiParticles
 from collections import Counter
 from magnebot import ActionStatus, Arm
-from utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos, reset_resolution, convert
-from constant import constants
+from utils.utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos, reset_resolution, convert
+from utils.constant import constants
 from PIL import Image
 from tdw.librarian import ModelLibrarian
 
@@ -72,9 +72,6 @@ class Collect(BasicTasks):
             bot_pos.append({'x':p[0], 'y':0, 'z':p[1]})
         return bot_pos
 
-    def objects_in_goal_position(self):
-        pass
-
     def _init_target_objects(self):
         
         lib = ModelLibrarian(library='models_core.json')
@@ -99,7 +96,7 @@ class Collect(BasicTasks):
         used_target_object_positions = list()
 
         # Add target objects to the room.
-        for i in range(Collect.NUM_TARGET_OBJECTS + self.num_agents):
+        for i in range(self.args.num_agents + self.num_agents):
             got_position = False
             ix, iy = -1, -1
             # Get a position where there isn't a target object.
@@ -114,7 +111,7 @@ class Collect(BasicTasks):
             used_target_object_positions.append((ix, iy))
             # Get the (x, z) coordinates for this position.
             x, z = self.get_occupancy_position(ix, iy)
-            if i >= Collect.NUM_TARGET_OBJECTS:
+            if i >= self.args.num_agents:
                 self.agent_init_pos.append([x,z])
             else:
                 obj_id = self.controller.get_unique_id()
@@ -147,9 +144,11 @@ class Collect(BasicTasks):
         self.goal_position.clear()
         self.agent_init_pos.clear()
         self.target_obj_id.clear()
+        self.target_obj_cate.clear()
+        self.steps = 0
 
     def is_done(self):
-        done_th = 4 if self.scene_type == 'house' else 1.5
+        done_th = 5 if self.scene_type == 'house' else 1.5
         goal_pos = self.goal_position[0]['pos']
         for obj in self.target_obj_id.keys():
             obj_pos = self.om.transforms[obj].position
@@ -162,7 +161,7 @@ class Collect(BasicTasks):
                     return False
         return True
 
-    def _parse_obs(self, action_done = None):
+    def _parse_obs(self, action_done = None): #TODO
         if action_done is None:
             action_done = [True] * self.num_agents
         agent_pos = [a.dynamic.transform.position for a in self.agents]
@@ -178,23 +177,23 @@ class Collect(BasicTasks):
             'action_space': action_space,
             'object_graph': obj_graph,
             'room_map': self.room_map,
-            'bound': self._scene_bounds
+            'bound': self.nav_scene_bounds
         }
         ic(obj_graph)
-        return obs
+        return obs, info
 
     def _get_partial_objects(self, agent_id):
         obs = []
         pos = self.agents[agent_id].dynamic.transform.position
-        grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
-        temp_grid = convert(grid,self._scene_bounds)
-        room_id = self.room_map[temp_grid[0], temp_grid[1]]
+        grid = self.get_occupancy_grid(pos[0], pos[2])
+        room_id = self.room_map[grid[0], grid[1]]
                 
         for obj_id in self.om.transforms:
             trans = self.om.transforms[obj_id]
             pos = trans.position
-            grid = pos_to_grid(pos[0], pos[2], self._scene_bounds)
-            obj_room = self.room_map[temp_grid[0], temp_grid[1]]
+            grid = self.get_occupancy_grid(pos[0], pos[2])
+            obj_room = self.room_map[grid[0], grid[1]]
+            
             if obj_room == room_id:
                 try: name = self.om.objects_static[obj_id].name
                 except: name = self.target_obj_id[obj_id]
@@ -207,14 +206,7 @@ class Collect(BasicTasks):
         return obs
 
     def _get_action_space(self, obj_graph=None):
-        """ visible_objects = self._get_visiable_objects()
-        action_space = [dict() for _ in range(self.num_agents)]
-        for agent_id in range(self.num_agents):
-            for object_id in visible_objects[agent_id]:
-                action_space[agent_id][object_id] = self.actions.get_actions(self.om.objects_static[object_id].category)
-            for room in self.room_center.keys():
-                action_space[agent_id][room] = [0]
-        return action_space, visible_objects """
+
         action_space = [dict() for _ in range(self.num_agents)]
         for agent_id in range(self.num_agents):
             for obj in obj_graph[agent_id]:
@@ -227,30 +219,18 @@ class Collect(BasicTasks):
         return action_space
 
     def step(self, actions):
+
         ic(actions)
+
         self.steps += 1
         action_done = [None for _ in range(self.num_agents)]
-        if self.log is not None:
-            self.log['trajectory'][self.steps-1]['actions'] = actions
+        
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
         def execute(actions, agent_id):
             for a_id in range(self.num_agents):
                 if self.steps > 1:
                     self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/'+str(self.random_seed)+'/agent_'+str(a_id))
-            """ tem_pos = self.agents[agent_id].dynamic.transform.position
-            fw = self.agents[agent_id].dynamic.transform.forward
-            tem_pos = [tem_pos[0], tem_pos[1], tem_pos[2], fw[0], fw[1], fw[2]]
-            if self.steps > 1:
-                obs = {
-                    'depth': TDWUtils.get_depth_values(self.agents[agent_id].dynamic.images['depth'], \
-                            width = 960, height = 960),
-                    'FOV':90,
-                    'camera_matrix':self.agents[agent_id].dynamic.camera_matrix,
-                    'agent':tem_pos
-                }
-                #self.agents[agent_id].bridge.dep2map(obs)
-                self.agents[agent_id].bridge.store_map(obs, self.occupancy_map, self._scene_bounds) """
             
             if self.lock_step > 0 and agent_id == 0:
                 self.lock_step -= 1

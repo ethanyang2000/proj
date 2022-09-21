@@ -4,7 +4,7 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 
-from constant import constants
+from utils.constant import constants
 
 
 class ObjNameCoordStateEncodeNameTokenMix(nn.Module):
