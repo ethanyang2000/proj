@@ -10,7 +10,7 @@ from tdw.tdw_utils import TDWUtils
 from tdw.output_data import OutputData, SegmentationColors, ObiParticles
 from collections import Counter
 from magnebot import ActionStatus, Arm
-from utils.utils import eular_yaw, pos_to_grid, any_ongoing, l2_dis, grid_to_pos, reset_resolution, convert
+from utils.utils import eular_yaw, any_ongoing, l2_dis
 from utils.constant import constants
 from PIL import Image
 from tdw.librarian import ModelLibrarian
@@ -110,7 +110,9 @@ class Collect(BasicTasks):
                         got_position = False
             used_target_object_positions.append((ix, iy))
             # Get the (x, z) coordinates for this position.
-            x, z = self.get_occupancy_position(ix, iy)
+            pos = self.get_occupancy_position(ix, iy)
+            x = pos[0]
+            z = pos[2]
             if i >= self.args.num_agents:
                 self.agent_init_pos.append([x,z])
             else:
@@ -180,6 +182,7 @@ class Collect(BasicTasks):
             'bound': self.nav_scene_bounds
         }
         ic(obj_graph)
+        info = None
         return obs, info
 
     def _get_partial_objects(self, agent_id):
@@ -228,9 +231,9 @@ class Collect(BasicTasks):
         # actions.shape = (agents, action) or (batch, agents, action) if support multi-env
         # actions: go towards, pick_up, put
         def execute(actions, agent_id):
-            for a_id in range(self.num_agents):
-                if self.steps > 1:
-                    self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/'+str(self.random_seed)+'/agent_'+str(a_id))
+            #for a_id in range(self.num_agents):
+                #if self.steps > 1:
+                    #self.agents[a_id].dynamic.save_images('C:/Users/YangYuxiang/tdw_example_controller_output/demo_epi_0/'+str(self.random_seed)+'/agent_'+str(a_id))
             
             if self.lock_step > 0 and agent_id == 0:
                 self.lock_step -= 1
@@ -247,7 +250,7 @@ class Collect(BasicTasks):
                 else:
                     obj_pos = self._get_obj_pos(actions[agent_id][1])
                     agent_pos = self.agents[1-agent_id].dynamic.transform.position
-                    grid = pos_to_grid(agent_pos[0], agent_pos[2], self._scene_bounds)
+                    grid = self.get_occupancy_grid(agent_pos[0], agent_pos[2])
                     self.agents[agent_id].move_towards(obj_pos, grid)
             elif actions[agent_id][0] == 1:
                 self.agents[agent_id].pick_up(actions[agent_id][1])
@@ -301,12 +304,9 @@ class Collect(BasicTasks):
                     while any_ongoing(self.agents):
                         self.controller.communicate([])
         
-        self.obs = self._parse_obs(action_done)
-        if self.log is not None:
-            self.log['trajectory'][self.steps] = {
-                'obs':self.obs
-            }
-        return self.obs
+        self.obs, info = self._parse_obs(action_done)
+        
+        return self.obs, info
 
     def _to_close(self):
         pos = self.agents[0].dynamic.transform.position

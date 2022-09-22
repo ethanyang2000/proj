@@ -1,13 +1,22 @@
 from icecream import ic
-from utils.utils import pos_to_grid
 from utils.utils import l2_dis
 import numpy as np
-import sys
+from utils.constant import constants
 
 class PlanningAgent:
     def __init__(self, num_agents) -> None:
         self.mode = [None for _ in range(num_agents)]
         self.num_agents = num_agents
+        self.objects_in_hand = [0 for _ in range(self.num_agents)]
+        self.obj_id_in_hand = [[] for _ in range(self.num_agents)]
+        self.done_object = []
+        self.nav_id = [None, None]
+        self.constants = constants('collect')
+        self.cell_size = self.constants.nav_cell_size
+        self.room_cell_size = self.constants.cell_size
+
+    def reset(self):
+        self.mode = [None for _ in range(self.num_agents)]
         self.objects_in_hand = [0 for _ in range(self.num_agents)]
         self.obj_id_in_hand = [[] for _ in range(self.num_agents)]
         self.done_object = []
@@ -26,8 +35,8 @@ class PlanningAgent:
         action_done = obs['action_done']
         trans_id = obs['goal_id']
         action_space = obs['action_space']
-        room_map = obs['room_map']
-        bound = obs['bound']
+        self.room_map = obs['room_map']
+        self.bound = obs['bound']
 
         for agent_id in range(self.num_agents):
             if self.mode[agent_id] == 'navigation':
@@ -77,7 +86,7 @@ class PlanningAgent:
 
             if actions[agent_id][0] == 0 and actions[agent_id][1] is not None:
                 actions[agent_id][1] = self._parse_navigation(action_space[agent_id], actions[agent_id][1],
-                trans, room_map, bound)
+                trans, self.room_map)
 
         ic(actions)
         ic(self.mode)
@@ -220,11 +229,11 @@ class PlanningAgent:
 
         return target_id
 
-    def _parse_navigation(self, action_space, object_id, trans, room_map, bound):
+    def _parse_navigation(self, action_space, object_id, trans, room_map):
         if object_id in action_space.keys():
             return object_id
         pos = trans[object_id].position
-        grid = pos_to_grid(pos[0], pos[2], bound)
+        grid = self.room_pos_to_grid(pos[0], pos[2])
         room_id = room_map[grid[0], grid[1]]
         return room_id
     
@@ -232,6 +241,13 @@ class PlanningAgent:
 
         i = (x - self.bound.x_min) / (self.cell_size)
         j = (z - self.bound.z_min) / (self.cell_size)
+
+        return [int(round(i)), int(round(j))]
+
+    def room_pos_to_grid(self, x,z):
+
+        i = (x - self.bound.x_min) / (self.room_cell_size)
+        j = (z - self.bound.z_min) / (self.room_cell_size)
 
         return [int(round(i)), int(round(j))]
     

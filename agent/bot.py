@@ -9,7 +9,7 @@ from tdw.add_ons.third_person_camera import ThirdPersonCamera
 from magnebot import Magnebot, ActionStatus
 from tdw.tdw_utils import TDWUtils
 from icecream import ic
-from utils.utils import l2_dis, eular_yaw, a_star_search, pos_to_grid, grid_to_pos, rrtPlanner
+from utils.utils import l2_dis, eular_yaw, a_star_search, rrtPlanner
 from tdw.output_data import OutputData, NavMeshPath
 import math
 
@@ -30,7 +30,6 @@ class Bot(Magnebot):
         self.map = map
         self.previous_nav = None
         self.last_direction = 3
-        self.bridge = bridge()
         self._rng = rng
 
     def _pick_up(self, target: int, arm: Arm):
@@ -192,7 +191,7 @@ class Bot(Magnebot):
         
         super().turn_by(angle=angle, aligned_at=aligned_at)
 
-    def turn_to(self, target: Union[int, Dict[str, float]], aligned_at: float = 3):
+    def turn_to(self, target, aligned_at: float = 3):
         
         super().turn_to(target=target, aligned_at=aligned_at)
 
@@ -208,10 +207,10 @@ class Bot(Magnebot):
         
         super().reset_position()
 
-    def _get_reset_arm_commands(self, arm: Arm, reset_torso: bool) -> List[dict]:
+    def _get_reset_arm_commands(self, arm: Arm, reset_torso: bool):
         return super()._get_reset_arm_commands(arm=arm, reset_torso=reset_torso)
 
-    def _get_bounds_sides(self, target: int) -> Tuple[List[np.array], List[bytes]]:
+    def _get_bounds_sides(self, target: int):
         sides, resp = super()._get_bounds_sides(target=target)
         # Set the y value to the highest point.
         max_y = -np.inf

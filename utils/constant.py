@@ -1,5 +1,5 @@
 class constants:
-    def __init__(self, task_type) -> None:
+    def __init__(self, task_type=None) -> None:
         if task_type == 'collect':
             self.target_objects = [
                 'vase_02',
@@ -28,6 +28,7 @@ class constants:
         ]
         self.magnebot_radius: float = 0.22
         self.cell_size: float = (self.magnebot_radius * 2) + 0.05
+        self.nav_cell_size = 0.25
 
 
 

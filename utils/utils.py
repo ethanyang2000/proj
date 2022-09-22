@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 import random
 import os
 from matplotlib import pyplot as plt
+from utils.constant import constants
 
 MAGNEBOT_RADIUS: float = 0.22
 OCCUPANCY_CELL_SIZE: float = (MAGNEBOT_RADIUS * 2) + 0.05
@@ -162,24 +163,7 @@ def a_star_search(grid: list, begin_point: list, target_point: list, start_pos, 
     
     if len(new_dis) == 0:
         return None, None'''
-    return new_dis[0], new_counts[0]
-
-
-def reset_resolution(value):
-    global OCCUPANCY_CELL_SIZE
-    OCCUPANCY_CELL_SIZE = value
-
-def pos_to_grid(x,z, bound):
-    #ic(x,z)
-    i = (x - bound.x_min) / (OCCUPANCY_CELL_SIZE)
-    j = (z - bound.z_min) / (OCCUPANCY_CELL_SIZE)
-    #ic(i,j)
-    return [int(round(i)), int(round(j))]
-    
-def grid_to_pos(i: int, j: int, bound):
-    x = bound.x_min + ((i) * OCCUPANCY_CELL_SIZE)
-    z = bound.z_min + ((j) * OCCUPANCY_CELL_SIZE)
-    return np.array([x, 0, z])
+    return new_dis[0], new_counts[0]    
 
 def eular_to_quat(eular):
     ma = R.from_euler('xyz', eular, degrees=True)
@@ -209,6 +193,7 @@ class rrtPlanner():
         self.map = map
         self.nodes = list()
         self.rng = rng
+        self.cell_size = constants().nav_cell_size
  
     def set_points(self, start, goal):
         self.start = Node(start)
@@ -229,7 +214,7 @@ class rrtPlanner():
  
     def collision_check(self, new_node):
         pos = [new_node.x, new_node.y]
-        grid = pos_to_grid(pos[0], pos[1], self.bound)
+        grid = self.pos_to_grid(pos[0], pos[1])
         ans = 0
         for i in range(grid[0]-1, grid[0]+2):
             for j in range(grid[1]-1, grid[1]+2):
@@ -313,8 +298,8 @@ class rrtPlanner():
 
     def merge_nodes(self, node1, node2, node3):
         del_flag = True
-        grid1 = pos_to_grid(node1.x, node2.y, self.bound)
-        grid3 = pos_to_grid(node3.x, node3.y, self.bound)
+        grid1 = self.pos_to_grid(node1.x, node2.y)
+        grid3 = self.pos_to_grid(node3.x, node3.y)
         minx = min(grid1[0], grid3[0])
         maxx = max(grid1[0], grid3[0])
         miny = min(grid1[1], grid3[1])
@@ -326,3 +311,8 @@ class rrtPlanner():
         if del_flag:
             node1.parent = node2.parent
         return del_flag
+    
+    def pos_to_grid(self, x, z):
+        i = (x - self.bound.x_min) / (self.cell_size)
+        j = (z - self.bound.z_min) / (self.cell_size)
+        return [int(round(i)), int(round(j))]

@@ -18,7 +18,6 @@ import os
 from icecream import ic
 from agent.bot import Bot
 from utils.constant import available_actions, constants, scene_const
-from utils.utils import grid_to_pos
 
 class BasicTasks():
     def __init__(self, args) -> None:
@@ -29,7 +28,7 @@ class BasicTasks():
         # scene: init_scene
         # object manager & robots: reset()
         # camera & capture: initialized False
-
+        self.args = args
         self.num_agents = args.num_agents
         self.scene = args.scene
         self.layout = args.layout
@@ -61,7 +60,7 @@ class BasicTasks():
                                 look_at={"x": 0, "y": 0, "z": 0},
                                 avatar_id="bird_view")
         
-        self.capture_path = self.args.run_dir + '/demo_epi_0'
+        self.capture_path = os.path.join(self.args.run_dir, '/demo_epi_0')
         self.capture = ImageCapture(avatar_ids=['bird_view'], path=self.capture_path)
         self.controller.add_ons = ([self.scene_instance, self.camera, self.capture, \
             self.om, self._step_physics, self.map_manager])
@@ -159,7 +158,9 @@ class BasicTasks():
     def get_occupancy_position(self, i: int, j: int):
         x = self._scene_bounds.x_min + (i * self.constants.cell_size)
         z = self._scene_bounds.z_min + (j * self.constants.cell_size)
-        return [x,0,z]
+        return np.array([x,0,z])
     
     def get_occupancy_grid(self, x, z):
-        x = 
+        i = (x - self._scene_bounds.x_min) / (self.constants.cell_size)
+        j = (z - self._scene_bounds.z_min) / (self.constants.cell_size)
+        return [int(round(i)), int(round(j))]

@@ -1,6 +1,7 @@
-from env.env import TaskEnv
 import sys
 import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from env.env import TaskEnv
 import wandb
 import argparse
 from pathlib import Path
@@ -79,13 +80,14 @@ def main(args):
         if not run_dir.exists():
             os.makedirs(str(run_dir))
 
-    setproctitle.setproctitle(str(all_args.algorithm_name) + "-" +
-                              str(all_args.env_name) + "-" + str(all_args.exp_name) + "@" + str(all_args.user_name))
+    setproctitle.setproctitle(str(all_args.task_type) + "-" +
+                              str(all_args.scene_type) + "-" + str(all_args.exp_name) + "@" + str(all_args.user_name))
 
     # env init
     envs = make_env(all_args)
 
     num_agents = all_args.num_agents
+    all_args.run_dir = run_dir
 
     config = {
         "all_args": all_args,

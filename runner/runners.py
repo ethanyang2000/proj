@@ -1,5 +1,6 @@
 from agent.agent import PlanningAgent
 import pickle
+import time
 
 class SampleRunner:
     def __init__(self, config) -> None:
@@ -14,8 +15,7 @@ class SampleRunner:
     
     def warmup(self):
         obs, done, reward, info = self.env.reset()
-        if self.args.log:
-            self.logs.append(info['log'])
+        
         return obs, done, reward, info
 
     def run(self):
@@ -23,14 +23,18 @@ class SampleRunner:
         obs, done, reward, info = self.warmup()
 
         for epi in range(self.args.episodes):
+            start = time.time()
             for _ in range(self.args.max_steps):
                 actions = self.agent.act(obs)
                 obs, done, reward, info = self.env.step(actions)
                 if self.args.log: self.logs.append(info['log'])
                 self.env_step += 1
                 if done or self.env_step == self.args.max_steps - 1:
+                    end = time.time()
+                    print("FPS: {}".format(self.env_step/(end-start)))
                     self.env_step = 0
                     obs, done, reward, info = self.env.reset()
+                    self.agent.reset()
                     if self.args.log: self.logs.append(info['log'])
                     break
     
